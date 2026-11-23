@@ -238,3 +238,35 @@ def test_batch_skips_db_at_night(monkeypatch):
                         lambda _s: {"pac": 0, **{f"iPv{k}": 0 for k in range(1, 21)}})
     monkeypatch.setattr(poller, "init_db", lambda: (_ for _ in ()).throw(AssertionError("DB")))
     assert poller.run_batch(2, 0) == 0
+
+
+def test_rules_crud_and_evaluation():
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+    from app.main import app
+    from app.rules import evaluate
+    with TestClient(app) as c:
+        d = c.get("/api/rules").json()
+        assert {r["rtype"] for r in d["rules"]} >= {"string_dev", "string_zero", "tracker_dev"}
+        assert "string_spread" in d["types"]
+        r = c.post("/api/rules", json={"rtype": "string_spread", "threshold": 25,
+                                       "tracker": "124", "severity": "alarm"}).json()
+        assert r["name"] == "Diferència dins d'un seguidor" and r["tracker"] == "124"
+        assert c.put(f"/api/rules/{r['id']}", json={"enabled": False}).json()["enabled"] is False
+        assert c.post("/api/rules", json={"rtype": "nope"}).status_code == 422
+        assert c.delete(f"/api/rules/{r['id']}").json()["ok"]
+
+    now = datetime(2030, 1, 1, 12, tzinfo=timezone.utc)
+    cur = [7.0] * 20
+    cur[8] = cur[9] = 5.0                      # seguidor 121 un 29 % menys
+    res = analyze(_readings(cur), plant)
+
+    def rule(rtype, thr, tracker=None):
+        return SimpleNamespace(rtype=rtype, threshold=thr, tracker=tracker, enabled=True)
+
+    hits = evaluate(rule("tracker_dev", 15), res, {}, None, now, plant)
+    assert [h["tracker"] for h in hits] == ["121"]
+    assert evaluate(rule("tracker_dev", 15, "114"), res, {}, None, now, plant) == []
+    assert evaluate(rule("ac_low", 5), res, {"ac_power_w": 3000}, None, now, plant)
+    old = {"dataTimestamp": str((now.timestamp() - 3600) * 1000)}
+    assert evaluate(rule("stale_data", 30), res, {}, old, now, plant)

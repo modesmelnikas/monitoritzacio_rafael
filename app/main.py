@@ -15,7 +15,7 @@ from sqlalchemy import select
 
 from .analysis import analyze
 from .config import ROOT, get_plant, get_settings
-from .db import Alert, DailyEnergy, InputDaily, SessionLocal, Snapshot, StringReading, init_db
+from .db import Alert, AlertRule, DailyEnergy, InputDaily, SessionLocal, Snapshot, StringReading, init_db
 from .solis import _scaled
 from .poller import collect_once, safe_collect
 
@@ -164,6 +164,32 @@ def daily(days: int = Query(7, gt=0, le=90)):
     return {"days": out, "strings": [s.id for s in plant.strings]}
 
 
+@app.get("/api/power")
+def power_curve(date: str | None = None):
+    """Corba de potència d'un dia (hora local): AC de l'inversor i DC sumada."""
+    from sqlalchemy import func
+    today = datetime.now(timezone.utc).astimezone(LOCAL_TZ).date()
+    try:
+        day = datetime.strptime((date or today.isoformat())[:10], "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(422, "Data incorrecta")
+    start = datetime(day.year, day.month, day.day, tzinfo=LOCAL_TZ).astimezone(timezone.utc)
+    end = start + timedelta(days=1)
+    with SessionLocal() as db:
+        snaps = db.execute(select(Snapshot.id, Snapshot.ts, Snapshot.ac_power_w)
+                           .where(Snapshot.ts >= start, Snapshot.ts < end)
+                           .order_by(Snapshot.ts)).all()
+        dc = dict(db.execute(select(StringReading.snapshot_id, func.sum(StringReading.power_w))
+                             .where(StringReading.ts >= start, StringReading.ts < end)
+                             .group_by(StringReading.snapshot_id)).all())
+        de = db.get(DailyEnergy, day.isoformat())
+    pts = [{"ts": _iso(ts), "ac_kw": None if ac is None else round(ac / 1000, 2),
+            "dc_kw": None if dc.get(i) is None else round(dc[i] / 1000, 2)}
+           for i, ts, ac in snaps]
+    return {"date": day.isoformat(), "start": _iso(start), "end": _iso(end),
+            "day_kwh": round(de.kwh, 1) if de else None, "points": pts}
+
+
 @app.get("/api/production")
 def production(days: int = Query(30, gt=0, le=400)):
     """Producción diaria total del inversor (kWh), últimos N días."""
@@ -261,6 +287,85 @@ def change_alert(alert_id: int, action: str, payload: dict | None = Body(None)):
             a.notes = (a.notes + "\n" if a.notes else "") + note
         db.commit()
         return _alert_json(a)
+
+
+def _rule_json(r: AlertRule) -> dict:
+    return {"id": r.id, "name": r.name, "rtype": r.rtype, "threshold": r.threshold,
+            "min_readings": r.min_readings, "tracker": r.tracker, "severity": r.severity,
+            "enabled": r.enabled}
+
+
+def _rule_from_payload(r: AlertRule, p: dict) -> None:
+    from .rules import RULE_TYPES
+    if "rtype" in p:
+        if p["rtype"] not in RULE_TYPES:
+            raise HTTPException(422, "Tipus de regla desconegut")
+        r.rtype = p["rtype"]
+    if "name" in p:
+        r.name = (str(p["name"] or "").strip() or RULE_TYPES[r.rtype]["name"])[:120]
+    if "threshold" in p:
+        try:
+            r.threshold = None if p["threshold"] in (None, "") else float(p["threshold"])
+        except (TypeError, ValueError):
+            raise HTTPException(422, "Llindar incorrecte")
+    if "min_readings" in p:
+        try:
+            r.min_readings = max(1, min(50, int(p["min_readings"])))
+        except (TypeError, ValueError):
+            raise HTTPException(422, "Lectures incorrectes")
+    if "tracker" in p:
+        t = str(p["tracker"] or "").strip() or None
+        if t and t not in {x.id for x in get_plant().trackers}:
+            raise HTTPException(422, "Seguidor desconegut")
+        r.tracker = t
+    if "severity" in p:
+        r.severity = p["severity"] if p["severity"] in ("warning", "alarm") else "warning"
+    if "enabled" in p:
+        r.enabled = bool(p["enabled"])
+
+
+@app.get("/api/rules")
+def list_rules():
+    from .rules import RULE_TYPES
+    with SessionLocal() as db:
+        rules = [_rule_json(r) for r in db.scalars(select(AlertRule).order_by(AlertRule.id))]
+    return {"rules": rules, "types": RULE_TYPES}
+
+
+@app.post("/api/rules")
+def create_rule(payload: dict = Body(...)):
+    from .rules import RULE_TYPES
+    if payload.get("rtype") not in RULE_TYPES:
+        raise HTTPException(422, "Tipus de regla desconegut")
+    r = AlertRule(rtype=payload["rtype"], name="", min_readings=3, severity="warning",
+                  enabled=True, threshold=RULE_TYPES[payload["rtype"]]["default"])
+    _rule_from_payload(r, {"name": "", **payload})
+    with SessionLocal() as db:
+        db.add(r)
+        db.commit()
+        return _rule_json(r)
+
+
+@app.put("/api/rules/{rule_id}")
+def update_rule(rule_id: int, payload: dict = Body(...)):
+    with SessionLocal() as db:
+        r = db.get(AlertRule, rule_id)
+        if not r:
+            raise HTTPException(404, "No existeix")
+        _rule_from_payload(r, payload)
+        db.commit()
+        return _rule_json(r)
+
+
+@app.delete("/api/rules/{rule_id}")
+def delete_rule(rule_id: int):
+    with SessionLocal() as db:
+        r = db.get(AlertRule, rule_id)
+        if not r:
+            raise HTTPException(404, "No existeix")
+        db.delete(r)
+        db.commit()
+        return {"ok": True}
 
 
 @app.get("/api/raw")

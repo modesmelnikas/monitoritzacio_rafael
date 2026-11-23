@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import (JSON, DateTime, Float, Integer, String, Text, create_engine,
-                        Index)
+from sqlalchemy import (JSON, Boolean, DateTime, Float, Integer, String, Text,
+                        create_engine, Index)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from .config import ROOT, get_settings
@@ -76,6 +76,19 @@ class Alert(Base):
     closed: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class AlertRule(Base):
+    """Regla d'alarma definida per l'usuari (vegeu app/rules.py)."""
+    __tablename__ = "alert_rules"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    rtype: Mapped[str] = mapped_column(String(32))
+    threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
+    min_readings: Mapped[int] = mapped_column(Integer, default=3)
+    tracker: Mapped[str | None] = mapped_column(String(16), nullable=True)   # None = tots
+    severity: Mapped[str] = mapped_column(String(8), default="warning")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
 def _url() -> str:
     url = get_settings().database_url
     if not url:
@@ -94,3 +107,5 @@ SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 def init_db() -> None:
     Base.metadata.create_all(engine)
+    from .rules import seed_default_rules
+    seed_default_rules()

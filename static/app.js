@@ -72,32 +72,32 @@ function renderPlan(s) {
 }
 
 function renderBars(s) {
-  // Un fila por string. S1 y S2 van en paralelo en la misma entrada: el inversor
-  // solo ve la suma, así que cada uno muestra la mitad (estimado).
+  // Una targeta per seguidor amb els seus 3 strings en barres verticals.
+  // S1 i S2 van en paral·lel a la mateixa entrada: cadascun mostra la meitat.
   const box = $("bars");
   box.innerHTML = "";
-  const rows = s.trackers.flatMap((t) => t.strings.flatMap((x) => {
-    const names = (x.label || "").split("+");
-    const n = Math.max(1, x.n_strings || names.length);
-    return names.map((name) => ({
-      ...x, name, shared: n > 1,
-      p: x.power_w == null ? null : x.power_w / n,
-      i: x.current_a == null ? null : x.current_a / n,
-    }));
+  const cards = s.trackers.map((t) => ({
+    t, rows: t.strings.flatMap((x) => {
+      const names = (x.label || "").split("+");
+      const n = Math.max(1, x.n_strings || names.length);
+      return names.map((name) => ({ ...x, name, shared: n > 1, p: x.power_w == null ? null : x.power_w / n }));
+    }),
   }));
-  const ps = rows.map((r) => r.p).filter((v) => v != null).sort((a, b) => a - b);
+  const ps = cards.flatMap((c) => c.rows.map((r) => r.p)).filter((v) => v != null).sort((a, b) => a - b);
   const med = ps.length ? ps[Math.floor(ps.length / 2)] : null;
-  const max = Math.max(1, ...ps) * 1.05;
-  for (const x of rows) {
-    const row = document.createElement("div");
-    row.className = "bar " + x.status;
-    const pct = ((x.p || 0) / max) * 100;
-    const medPct = med ? (med / max) * 100 : null;
-    const dev = x.deviation_pct == null ? "" : (x.deviation_pct > 0 ? "+" : "") + x.deviation_pct.toFixed(0) + "%";
-    row.title = x.shared ? `${x.tracker} ${x.label}: entrada PV${x.input} compartida, meitat estimada` : `${x.tracker} ${x.label}: entrada PV${x.input}`;
-    row.innerHTML = `<span>${esc(x.tracker)} ${esc(x.name)}${x.shared ? '<sup class="half">½</sup>' : ""}</span><span class="track"><span class="fill" style="width:${pct}%"></span>${medPct ? `<span class="med" style="left:${medPct}%"></span>` : ""}</span><span class="val">${fmtW(x.p)} ${dev}</span>`;
-    row.addEventListener("click", () => openTracker(x.tracker));
-    box.appendChild(row);
+  const max = Math.max(1, ...ps) * 1.08;
+  for (const { t, rows } of cards) {
+    const vals = rows.map((r) => r.p).filter((v) => v != null);
+    const spread = vals.length > 1 && Math.max(...vals) > 0 ? ((Math.max(...vals) - Math.min(...vals)) / Math.max(...vals)) * 100 : null;
+    const sc = spread == null ? "" : spread >= 25 ? "alarm" : spread >= 10 ? "warning" : "ok";
+    const card = document.createElement("div");
+    card.className = "scard";
+    card.innerHTML = `<div class="scard-h"><b>${esc(t.id)}</b>${spread == null ? "" : `<span class="spread ${sc}" title="Diferència entre el millor i el pitjor string">Δ ${spread.toFixed(0)}%</span>`}</div>
+      <div class="vbars">${med ? `<span class="vmed" style="bottom:calc((100% - 32px) * ${(med / max).toFixed(4)})"></span>` : ""}
+      ${rows.map((r) => `<div class="vcol ${r.status}"><span class="vval">${r.p == null ? "–" : (r.p / 1000).toFixed(2)}</span><span class="vbar" style="height:calc((100% - 16px) * ${((r.p || 0) / max).toFixed(4)})"></span></div>`).join("")}</div>
+      <div class="vlabels">${rows.map((r) => `<span>${esc(r.name)}${r.shared ? '<sup class="half">½</sup>' : ""}</span>`).join("")}</div>`;
+    card.addEventListener("click", () => openTracker(t.id));
+    box.appendChild(card);
   }
 }
 
@@ -193,6 +193,79 @@ function fillStringOptions() {
   }
 }
 
+// ---- Regles d'alarma ----
+let rulesData = null;
+
+function ruleSummary(r, types) {
+  const t = types[r.rtype] || {};
+  const thr = r.threshold ?? t.default;
+  const desc = (t.desc || r.rtype).replace("X", thr == null ? "" : String(thr).replace(".", ","));
+  const scope = r.tracker ? `Seguidor ${r.tracker}` : "Tots els seguidors";
+  return `${desc} · ${scope} · ${r.min_readings > 1 ? `${r.min_readings} lectures seguides (≈ ${r.min_readings * 10} min)` : "1 lectura"}`;
+}
+
+async function renderRules() {
+  try {
+    rulesData = await getJSON("/api/rules");
+    const ul = $("rules");
+    ul.innerHTML = "";
+    if (!rulesData.rules.length) { ul.innerHTML = "<li>No hi ha cap regla.</li>"; return; }
+    for (const r of rulesData.rules) {
+      const li = document.createElement("li");
+      li.className = r.enabled ? "" : "off";
+      li.innerHTML = `<div class="rl-h"><span class="sev ${r.severity}">${SEV_TXT[r.severity]}</span><b>${esc(r.name)}</b>
+          <label class="switch" title="Activar o desactivar"><input type="checkbox" ${r.enabled ? "checked" : ""}><span></span></label></div>
+        <div class="rl-d">${esc(ruleSummary(r, rulesData.types))}</div>
+        <div class="rl-f"><button class="link edit">Editar</button><button class="link del">Esborrar</button></div>`;
+      li.querySelector("input").addEventListener("change", async (ev) => {
+        await fetch(`/api/rules/${r.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: ev.target.checked }) });
+        renderRules();
+      });
+      li.querySelector(".edit").addEventListener("click", () => openRuleForm(r));
+      li.querySelector(".del").addEventListener("click", async () => {
+        if (!window.confirm(`Esborrar la regla "${r.name}"?`)) return;
+        await fetch(`/api/rules/${r.id}`, { method: "DELETE" });
+        renderRules();
+      });
+      ul.appendChild(li);
+    }
+  } catch (e) { console.error(e); }
+}
+
+function syncRuleType() {
+  const t = rulesData.types[$("rType").value];
+  $("rDesc").textContent = t.desc;
+  $("rThrWrap").hidden = !t.unit;
+  $("rUnit").textContent = t.unit ? `(${t.unit})` : "";
+  if (!$("rId").value) { $("rThr").value = t.default ?? ""; $("rName").placeholder = t.name; }
+}
+
+async function openRuleForm(r) {
+  if (!rulesData) await renderRules();
+  const sel = $("rType");
+  if (!sel.options.length) {
+    for (const [k, t] of Object.entries(rulesData.types)) {
+      const o = document.createElement("option"); o.value = k; o.textContent = t.name; sel.appendChild(o);
+    }
+  }
+  const ts = $("rTracker");
+  if (ts.options.length <= 1 && state) {
+    for (const t of state.trackers) { const o = document.createElement("option"); o.value = t.id; o.textContent = `Seguidor ${t.id}`; ts.appendChild(o); }
+  }
+  $("rId").value = r ? r.id : "";
+  sel.value = r ? r.rtype : "string_dev";
+  sel.disabled = !!r;
+  $("rName").value = r ? r.name : "";
+  $("rMin").value = r ? r.min_readings : 3;
+  ts.value = r && r.tracker ? r.tracker : "";
+  $("rSev").value = r ? r.severity : "warning";
+  syncRuleType();
+  if (r) $("rThr").value = r.threshold ?? "";
+  $("rErr").textContent = "";
+  $("ruleForm").hidden = false; $("newRuleBtn").hidden = true;
+  $("ruleForm").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
 async function selectTracker(id, scroll = true) {
   selected = id;
   renderPlan(state);
@@ -247,51 +320,65 @@ function drawChart(svg, series, ids, nOf = {}) {
   });
 }
 
+const dayState = { date: new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Madrid" }) };
+
 async function renderProduction() {
   const svg = $("prodChart");
   try {
-    const d = await getJSON("/api/production?days=30");
+    const d = await getJSON(`/api/power?date=${dayState.date}`);
+    const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Madrid" });
+    const lbl = new Date(d.date + "T12:00").toLocaleDateString(LOC, { weekday: "short", day: "numeric", month: "short" });
+    $("dayLabel").textContent = (d.date === today ? "Avui · " : "") + lbl;
+    $("nextD").disabled = d.date >= today;
+    $("prodHint").textContent = d.day_kwh != null ? `${Math.round(d.day_kwh).toLocaleString(LOC)} kWh al dia` : "Potència de tots els seguidors";
     svg.innerHTML = "";
-    const W = Math.max(320, svg.clientWidth || 600), H = 190, L = 34, B = 20, T = 14;
+    const W = Math.max(320, svg.clientWidth || 600), H = 200, L = 34, B = 20, T = 12, R = 8;
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-    const days = d.days;
-    if (!days.length) {
+    const t0 = +new Date(d.start), t1 = +new Date(d.end);
+    const pts = d.points.filter((p) => p.ac_kw != null).map((p) => ({ t: +new Date(p.ts), v: p.ac_kw }));
+    const max = Math.max(10, ...pts.map((p) => p.v)) * 1.1;
+    const X = (t) => L + ((t - t0) / (t1 - t0)) * (W - L - R);
+    const Y = (v) => T + (1 - v / max) * (H - T - B);
+    const tick = [5, 10, 20, 25, 50].find((v) => max / v <= 5) || 50;
+    for (let v = 0; v <= max; v += tick) {
+      el("line", { x1: L, x2: W - R, y1: Y(v), y2: Y(v), class: "grid" }, svg);
+      const tx = el("text", { x: L - 4, y: Y(v) + 3, class: "axis", "text-anchor": "end" }, svg); tx.textContent = v;
+    }
+    const kw = el("text", { x: 2, y: 9, class: "axis" }, svg); kw.textContent = "kW";
+    for (let h = 0; h <= 24; h += (W < 480 ? 4 : 2)) {
+      const tx = el("text", { x: X(t0 + h * 3600e3), y: H - 5, class: "axis", "text-anchor": "middle" }, svg);
+      tx.textContent = String(h).padStart(2, "0") + ":00";
+    }
+    if (!pts.length) {
       const tx = el("text", { x: W / 2, y: H / 2, class: "axis", "text-anchor": "middle" }, svg);
-      tx.textContent = "Encara no hi ha dies desats";
+      tx.textContent = "Sense dades aquest dia";
       return;
     }
-    const max = Math.max(1, ...days.map((x) => x.kwh)) * 1.12;
-    const Y = (v) => T + (1 - v / max) * (H - T - B);
-    const step = Math.pow(10, Math.floor(Math.log10(max / 3)));
-    const tick = [1, 2, 5, 10].map((m) => m * step).find((v) => max / v <= 5);
-    for (let v = 0; v <= max; v += tick) {
-      el("line", { x1: L, x2: W, y1: Y(v), y2: Y(v), class: "grid" }, svg);
-      const tx = el("text", { x: L - 4, y: Y(v) + 3, class: "axis", "text-anchor": "end" }, svg);
-      tx.textContent = Math.round(v);
+    // es talla la línia si hi ha un forat de més de 30 min (nit o lectures perdudes)
+    const segs = []; let cur = [];
+    for (const p of pts) {
+      if (cur.length && p.t - cur[cur.length - 1].t > 30 * 60e3) { segs.push(cur); cur = []; }
+      cur.push(p);
     }
-    const n = 30, slot = (W - L) / n, bw = Math.max(3, slot * 0.7);
-    const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Madrid" });
-    const start = new Date(today); start.setDate(start.getDate() - (n - 1));
-    const byDay = Object.fromEntries(days.map((x) => [x.day, x.kwh]));
-    let total = 0, count = 0;
-    for (let k = 0; k < n; k++) {
-      const dt = new Date(start); dt.setDate(start.getDate() + k);
-      const key = dt.toLocaleDateString("sv-SE");
-      const v = byDay[key];
-      const x = L + k * slot + (slot - bw) / 2;
-      if (v != null) {
-        total += v; count++;
-        const r = el("rect", { x, y: Y(v), width: bw, height: Math.max(0, Y(0) - Y(v)), rx: 2, class: "bar-d" + (key === today ? " today" : "") }, svg);
-        const ti = el("title", {}, r); ti.textContent = `${key}: ${v.toFixed(1)} kWh`;
-        if (key === today || n <= 14) { const tv = el("text", { x: x + bw / 2, y: Y(v) - 3, class: "val" }, svg); tv.textContent = Math.round(v); }
-      }
-      if (dt.getDate() === 1 || k % 5 === 0 || k === n - 1) {
-        const tx = el("text", { x: x + bw / 2, y: H - 5, class: "axis", "text-anchor": "middle" }, svg);
-        tx.textContent = `${dt.getDate()}/${dt.getMonth() + 1}`;
-      }
+    segs.push(cur);
+    for (const sg of segs) {
+      const line = sg.map((p, j) => (j ? "L" : "M") + X(p.t).toFixed(1) + "," + Y(p.v).toFixed(1)).join(" ");
+      el("path", { d: `${line} L${X(sg[sg.length - 1].t).toFixed(1)},${Y(0)} L${X(sg[0].t).toFixed(1)},${Y(0)} Z`, class: "pv-area" }, svg);
+      el("path", { d: line, class: "pv-line" }, svg);
     }
-    $("prodHint").textContent = count ? `Tots els seguidors · mitjana ${Math.round(total / count)} kWh/dia` : "Tots els seguidors · kWh";
+    // punt i valor màxim
+    const mx = pts.reduce((a, b) => (b.v > a.v ? b : a));
+    el("circle", { cx: X(mx.t), cy: Y(mx.v), r: 3, class: "pv-dot" }, svg);
+    const tm = el("text", { x: X(mx.t), y: Y(mx.v) - 6, class: "val" }, svg);
+    tm.textContent = `${mx.v.toFixed(1)} kW`;
   } catch (e) { console.error(e); }
+}
+
+function shiftDay(dir) {
+  const d = new Date(dayState.date + "T12:00:00");
+  d.setDate(d.getDate() + dir);
+  dayState.date = d.toLocaleDateString("sv-SE");
+  renderProduction();
 }
 
 const trkState = { period: "day", date: new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Madrid" }) };
@@ -343,36 +430,12 @@ async function renderTrackers() {
   } catch (e) { console.error(e); }
 }
 
-async function renderDaily() {
-  try {
-    const d = await getJSON("/api/daily?days=7");
-    const tbl = $("daily");
-    if (!d.days.length) { tbl.innerHTML = "<tr><td>Encara no hi ha dies complets.</td></tr>"; return; }
-    const days = d.days.slice(-7);
-    let html = "<tr><th>String</th>" + days.map((x) => `<th>${x.day.slice(5)}</th>`).join("") + "</tr>";
-    for (const sid of d.strings) {
-      html += `<tr><td>${esc(sid)}</td>`;
-      for (const day of days) {
-        const vals = Object.values(day.kwh_per_kwp).sort((a, b) => a - b);
-        const med = vals.length ? vals[Math.floor(vals.length / 2)] : 0;
-        const v = day.kwh_per_kwp[sid];
-        const ratio = med ? v / med : 1;
-        const bg = v == null ? "" : ratio < 0.75 ? "var(--alarm)" : ratio < 0.9 ? "var(--warning)" : "";
-        html += `<td style="${bg ? `background:color-mix(in srgb, ${bg} 30%, transparent)` : ""}">${v == null ? "–" : v.toFixed(2)}</td>`;
-      }
-      html += "</tr>";
-    }
-    tbl.innerHTML = html;
-  } catch (e) { console.error(e); }
-}
-
 async function load() {
   try {
     state = await getJSON("/api/status");
     renderHeader(state); renderPlan(state); renderBars(state); renderAlerts(state); renderProduction();
     updateAlertCount();
     if (selected) selectTracker(selected, false);
-    if (location.hash === "#rendiment") renderDaily();
     if (location.hash === "#seguidors") renderTrackers();
     if (location.hash === "#alarmes") renderRegister();
   } catch (e) {
@@ -381,14 +444,13 @@ async function load() {
   }
 }
 
-const PAGES = ["planol", "strings", "seguidors", "alarmes", "rendiment"];
+const PAGES = ["planol", "strings", "seguidors", "alarmes"];
 function showPage(name) {
   if (!PAGES.includes(name)) name = "planol";
   document.querySelectorAll(".page").forEach((p) => { p.hidden = p.dataset.page !== name; });
   document.querySelectorAll(".tabbar a").forEach((a) => a.classList.toggle("active", a.dataset.tab === name));
-  if (name === "rendiment") renderDaily();
   if (name === "seguidors") renderTrackers();
-  if (name === "alarmes") renderRegister();
+  if (name === "alarmes") { renderRegister(); renderRules(); }
   window.scrollTo(0, 0);
 }
 window.addEventListener("hashchange", () => showPage(location.hash.slice(1)));
@@ -401,6 +463,23 @@ function openTracker(id) {
 document.querySelectorAll("#periodSel button").forEach((b) => b.addEventListener("click", () => { trkState.period = b.dataset.p; renderTrackers(); }));
 $("prevP").addEventListener("click", () => shiftDate(-1));
 $("nextP").addEventListener("click", () => shiftDate(1));
+
+$("prevD").addEventListener("click", () => shiftDay(-1));
+$("nextD").addEventListener("click", () => shiftDay(1));
+
+$("newRuleBtn").addEventListener("click", () => openRuleForm(null));
+$("rType").addEventListener("change", syncRuleType);
+$("rCancel").addEventListener("click", () => { $("ruleForm").hidden = true; $("newRuleBtn").hidden = false; });
+$("ruleForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const id = $("rId").value;
+  const body = { rtype: $("rType").value, name: $("rName").value, threshold: $("rThr").value,
+                 min_readings: $("rMin").value, tracker: $("rTracker").value, severity: $("rSev").value };
+  const r = await fetch(id ? `/api/rules/${id}` : "/api/rules", { method: id ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) { $("rErr").textContent = "No s'ha pogut desar: " + (await r.text()); return; }
+  $("ruleForm").hidden = true; $("newRuleBtn").hidden = false;
+  renderRules();
+});
 
 let resizeT;
 window.addEventListener("resize", () => { clearTimeout(resizeT); resizeT = setTimeout(() => { if (state) { renderPlan(state); renderProduction(); } }, 150); });

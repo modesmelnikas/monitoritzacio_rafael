@@ -39,8 +39,10 @@
     </section>
 
     <section class="card">
-      <div class="card-h"><h2>Producció diària</h2><span class="hint" id="prodHint">Tots els seguidors · kWh</span></div>
-      <svg id="prodChart" class="chart prod" role="img" aria-label="Producció diària en kWh"></svg>
+      <div class="card-h"><h2>Producció diària</h2><span class="hint" id="prodHint">Potència de tots els seguidors</span></div>
+      <div class="pnav"><button id="prevD" aria-label="Dia anterior">‹</button><b id="dayLabel">–</b><button id="nextD" aria-label="Dia següent">›</button></div>
+      <svg id="prodChart" class="chart prod" role="img" aria-label="Corba de potència del dia"></svg>
+      <div class="legend"><span><i class="dot pv"></i>Potència AC (inversor)</span></div>
     </section>
 
     <section class="card" id="detail" hidden>
@@ -55,9 +57,8 @@
   <!-- Pàgina: strings -->
   <div class="page" data-page="strings" hidden>
     <section class="card">
-      <div class="card-h"><h2>Comparació de strings</h2><span class="hint">Potència per string · línia = mediana</span></div>
-      <p class="note">S1 i S2 van en paral·lel a la mateixa entrada (marcats amb ½): l'inversor només en veu la suma i a cadascun se li assigna la meitat.</p>
-      <div id="bars" class="bars"></div>
+      <div class="card-h"><h2>Comparació de strings</h2></div>
+      <div id="bars" class="sgrid"></div>
     </section>
   </div>
 
@@ -97,15 +98,27 @@
       </form>
       <div class="seg seg2" id="regSel"><button data-s="open" class="on">Obertes</button><button data-s="closed">Tancades</button></div>
       <ul id="register" class="alerts reg"></ul>
-      <p class="note">Les automàtiques es creen soles quan l'anàlisi detecta un problema (una per problema, i es van actualitzant mentre continuï). Les manuals les crees tu. Totes es tanquen a mà.</p>
     </section>
-  </div>
 
-  <!-- Pàgina: rendiment -->
-  <div class="page" data-page="rendiment" hidden>
     <section class="card">
-      <div class="card-h"><h2>Rendiment diari</h2><span class="hint">kWh/kWp per entrada</span></div>
-      <div class="scroll"><table id="daily" class="daily"></table></div>
+      <div class="card-h"><h2>Regles d'alarma</h2><button id="newRuleBtn" class="btn">+ Nova regla</button></div>
+      <form id="ruleForm" class="aform" hidden>
+        <input type="hidden" id="rId">
+        <label>Tipus<select id="rType"></select></label>
+        <p class="note" id="rDesc"></p>
+        <label>Nom<input id="rName" maxlength="120" placeholder="Nom de la regla"></label>
+        <div class="row2">
+          <label id="rThrWrap">Llindar <span id="rUnit"></span><input id="rThr" type="number" step="any" min="0"></label>
+          <label>Lectures seguides<input id="rMin" type="number" min="1" max="50" value="3"></label>
+        </div>
+        <div class="row2">
+          <label>Seguidor<select id="rTracker"><option value="">Tots</option></select></label>
+          <label>Gravetat<select id="rSev"><option value="warning">Avís</option><option value="alarm">Alarma</option></select></label>
+        </div>
+        <p id="rErr" class="err"></p>
+        <div class="factions"><button type="button" id="rCancel" class="link">Cancel·lar</button><button type="submit" class="btn">Desar</button></div>
+      </form>
+      <ul id="rules" class="rules"></ul>
     </section>
   </div>
 
@@ -125,9 +138,6 @@
   <a href="#alarmes" data-tab="alarmes">
     <svg viewBox="0 0 24 24"><path d="M12 3 2.5 20h19z"/><path d="M12 10v4M12 17v.5"/></svg>
     <span>Alarmes</span><b id="alertCount" class="count" hidden></b></a>
-  <a href="#rendiment" data-tab="rendiment">
-    <svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
-    <span>Rendiment</span></a>
 </nav>
 <script src="/static/app.js"></script>
 </body>
