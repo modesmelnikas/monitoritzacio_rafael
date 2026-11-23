@@ -224,6 +224,17 @@ def _rebuild_input_daily(db, day: str) -> None:
         db.add(InputDaily(day=day, string_id=sid, tracker=trk, kwh=kwh))
 
 
+def _ac_closest_to_dc(pac, data: dict) -> float | None:
+    try:
+        v = float(pac)
+    except (TypeError, ValueError):
+        return data["ac_power_w"]
+    dc = sum((x["power_w"] or 0) for x in data["strings"])
+    if dc <= 0:
+        return v if v < 50 else data["ac_power_w"]
+    return min((v, v * 1000), key=lambda c: abs(c - dc))
+
+
 def backfill_day(day: str) -> int:
     """Omple els forats d'un dia amb les dades de 5 min de SolisCloud (inverterDay).
 
@@ -248,9 +259,9 @@ def backfill_day(day: str) -> int:
             if ts.astimezone(LOCAL_TZ).date().isoformat() != day:
                 continue
             data = parse_detail(pt, plant)
-            # a inverterDay, "pac" ve en W encara que pacStr digui kW
-            if data["ac_power_w"] and data["ac_power_w"] > 2e6:
-                data["ac_power_w"] /= 1000
+            # a inverterDay, pacStr no sempre quadra amb "pac": es tria la lectura
+            # (W o kW) més propera a la suma de potència DC dels strings
+            data["ac_power_w"] = _ac_closest_to_dc(pt.get("pac"), data)
             if _is_night(data) or any(abs((ts - h).total_seconds()) < 240 for h in have):
                 continue
             result = analyze(data["strings"], plant)
