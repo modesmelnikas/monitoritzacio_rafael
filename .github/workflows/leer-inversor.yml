@@ -4,6 +4,7 @@
 #
 # Secrets necesarios (Settings > Secrets and variables > Actions):
 #   DATABASE_URL, SOLIS_KEY_ID, SOLIS_KEY_SECRET, SOLIS_INVERTER_SN
+#   Opcional (avisos al mòbil): TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 name: Leer inversor
 
 on:
@@ -36,4 +37,6 @@ jobs:
           SOLIS_KEY_SECRET: ${{ secrets.SOLIS_KEY_SECRET }}
           SOLIS_INVERTER_SN: ${{ secrets.SOLIS_INVERTER_SN }}
           SOLIS_INVERTER_ID: ${{ secrets.SOLIS_INVERTER_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SOLIS_API_URL: https://www.soliscloud.com:13333

@@ -27,7 +27,7 @@ main { max-width: 960px; margin: 0 auto; padding: 12px 16px calc(84px + env(safe
 .page[hidden] { display: none; }
 .foot { text-align: center; color: var(--muted); font-size: 12px; margin: 16px 0 0; }
 .foot a { color: var(--accent); }
-.tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: grid; grid-template-columns: repeat(4, 1fr);
+.tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: grid; grid-template-columns: repeat(5, 1fr);
   background: var(--card); border-top: 1px solid var(--line); padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); }
 .tabbar a { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; color: var(--muted);
   text-decoration: none; font-size: 11px; padding: 4px 0; border-radius: 10px; }
@@ -37,7 +37,7 @@ main { max-width: 960px; margin: 0 auto; padding: 12px 16px calc(84px + env(safe
   background: var(--alarm); color: #fff; font-size: 11px; line-height: 18px; text-align: center; }
 .tabbar .count.warning { background: var(--warning); color: #111; }
 .kpis { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-@media (min-width: 640px) { .kpis { grid-template-columns: repeat(4, 1fr); } }
+@media (min-width: 640px) { .kpis { grid-template-columns: repeat(5, 1fr); } }
 .kpi { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; }
 .k-label { color: var(--muted); font-size: 12px; }
 .k-val { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -166,3 +166,19 @@ main { max-width: 960px; margin: 0 auto; padding: 12px 16px calc(84px + env(safe
 .switch input:checked + span::before { transform: translateX(18px); }
 .aform label[hidden] { display: none; }
 .aform select:disabled { opacity: .7; }
+
+/* Inici de sessió i comptes */
+.login-body { min-height: 100vh; display: grid; place-items: center; }
+.login { width: 100%; max-width: 380px; padding: 24px 16px; box-sizing: border-box; }
+.login-brand { text-align: center; margin-bottom: 18px; }
+.login-brand svg { width: 64px; height: 64px; }
+.login-brand .sun { fill: var(--pv); }
+.login-brand .pnl { fill: var(--panel); }
+.login-brand .mast { stroke: var(--muted); stroke-width: 3; stroke-linecap: round; fill: none; }
+.login-brand h1 { margin: 6px 0 0; font-size: 22px; }
+.login-card { background: var(--card); margin: 0; padding: 18px; }
+.login-card h2 { margin: 0 0 4px; font-size: 16px; }
+.btn-full { width: 100%; padding: 10px; font-size: 15px; }
+.chk { display: flex !important; align-items: center; gap: 8px; color: var(--ink) !important; font-weight: 500 !important; }
+.chk input { width: auto !important; }
+.utag { font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 6px; background: var(--accent); color: #fff; }

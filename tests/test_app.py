@@ -142,8 +142,11 @@ def test_poller_real_mode_skips_night_and_keeps_only_last_raw(monkeypatch):
     monkeypatch.setattr(poller, "fetch_inverter_detail", lambda _s: detail(0))
     assert poller.collect_once() is None                       # de noche no guarda
     monkeypatch.setattr(poller, "fetch_inverter_detail", lambda _s: detail(1))
-    a = poller.collect_once()
-    b = poller.collect_once()
+    from datetime import timedelta
+    t0 = datetime.now(timezone.utc) + timedelta(hours=1)
+    a = poller.collect_once(t0)
+    assert poller.collect_once(t0 + timedelta(minutes=2)) is None   # duplicada (<4 min)
+    b = poller.collect_once(t0 + timedelta(minutes=10))
     with SessionLocal() as db:
         assert db.get(Snapshot, a).raw is None                  # la cruda vieja se borra
         assert db.get(Snapshot, b).raw["pac"] == 50
@@ -170,16 +173,47 @@ def test_parallel_and_single_inputs_compared_within_their_group():
     assert s["117-S3"]["status"] == "ok"
 
 
-def test_health_is_public_when_password_set(monkeypatch):
+def test_login_and_accounts(monkeypatch):
     from app.config import Settings
+    import app.auth as auth
     import app.main as main
-    monkeypatch.setattr(main, "get_settings", lambda: Settings(dashboard_password="x"))
-    with TestClient(main.app) as c:
-        assert c.get("/healthz").status_code == 200
-        assert c.get("/api/health").status_code == 200
-        assert c.get("/health").status_code == 200
-        assert c.get("/api/status").status_code == 401
-        assert c.get("/api/status", auth=("rafael", "x")).status_code == 200
+    from app.db import SessionLocal, User
+    monkeypatch.setattr(auth, "get_settings", lambda: Settings(dashboard_password="secret1"))
+    monkeypatch.setenv("CRON_KEY", "k123")
+    try:
+        with TestClient(main.app) as c:
+            assert c.get("/healthz").status_code == 200
+            assert c.get("/login").status_code == 200
+            assert c.get("/api/status").status_code == 401
+            assert c.get("/", follow_redirects=False).headers["location"] == "/login"
+            assert c.get("/api/cron?key=mal").status_code == 403
+            assert c.post("/api/login", json={"username": "admin", "password": "no"}).status_code == 401
+            # l'admin es crea amb la contrasenya de DASHBOARD_PASSWORD
+            assert c.post("/api/login", json={"username": "Admin", "password": "secret1"}).status_code == 200
+            assert c.get("/api/status").status_code == 200
+            assert c.get("/api/me").json()["is_admin"] is True
+            r = c.post("/api/users", json={"username": "rafael", "password": "abcdef"})
+            assert r.status_code == 200
+            rid = r.json()["id"]
+            assert c.post("/api/users", json={"username": "rafael", "password": "abcdef"}).status_code == 400
+            me_id = c.get("/api/me").json()["id"]
+            assert c.delete(f"/api/users/{me_id}").status_code == 400   # no t'esborres a tu mateix
+            c.post("/api/logout")
+            assert c.get("/api/status").status_code == 401
+            # un usuari normal entra però no gestiona comptes
+            assert c.post("/api/login", json={"username": "rafael", "password": "abcdef"}).status_code == 200
+            assert c.get("/api/status").status_code == 200
+            assert c.get("/api/users").status_code == 403
+            assert c.put(f"/api/users/{me_id}", json={"password": "xxxxxx"}).status_code == 403
+            assert c.put(f"/api/users/{rid}", json={"password": "nova123"}).status_code == 200
+            assert c.get("/api/status").status_code == 200      # la galeta es renova
+            # accés per a scripts amb usuari i contrasenya
+            c.cookies.clear()
+            assert c.get("/api/status", auth=("rafael", "nova123")).status_code == 200
+    finally:
+        with SessionLocal() as db:
+            db.query(User).delete()
+            db.commit()
 
 
 def test_alert_register_auto_and_manual():
@@ -270,3 +304,21 @@ def test_rules_crud_and_evaluation():
     assert evaluate(rule("ac_low", 5), res, {"ac_power_w": 3000}, None, now, plant)
     old = {"dataTimestamp": str((now.timestamp() - 3600) * 1000)}
     assert evaluate(rule("stale_data", 30), res, {}, old, now, plant)
+
+
+def test_telegram_notify(monkeypatch):
+    import httpx
+    from app import notify
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    assert notify.send("x") == 0
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:abc")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "11, 22")
+    calls = []
+
+    def handler(req):
+        calls.append((str(req.url), req.content))
+        return httpx.Response(200, json={"ok": True})
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    assert notify.send(notify.alert_text("PS", "alarm", "114-S3 baix"), client) == 2
+    assert calls[0][0] == "https://api.telegram.org/bot123:abc/sendMessage"
+    assert "114-S3 baix" in calls[0][1].decode()

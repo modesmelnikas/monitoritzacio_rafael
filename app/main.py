@@ -2,18 +2,19 @@
 from __future__ import annotations
 
 import base64
+import hmac
 import logging
-import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 
 from .analysis import analyze
+from .auth import COOKIE, MAX_AGE, check_password, hash_password, make_token, read_token, users_exist
 from .config import ROOT, get_plant, get_settings
 from .db import Alert, AlertRule, DailyEnergy, InputDaily, SessionLocal, Snapshot, StringReading, init_db
 from .solis import _scaled
@@ -47,23 +48,174 @@ app = FastAPI(title="Monitorización strings FV", lifespan=lifespan)
 HEALTH_PATHS = {"/healthz", "/health", "/api/health"}  # sin contraseña, para el health check de Render
 
 
+PUBLIC_PATHS = HEALTH_PATHS | {"/login", "/api/login", "/api/logout", "/manifest.webmanifest", "/api/cron"}
+
+
+def _basic_user(request: Request, db):
+    """Accés amb usuari i contrasenya a la capçalera (per a scripts)."""
+    from .db import User
+    auth = request.headers.get("authorization", "")
+    if not auth.lower().startswith("basic "):
+        return None
+    try:
+        name, _, pwd = base64.b64decode(auth[6:]).decode().partition(":")
+    except Exception:  # noqa: BLE001
+        return None
+    u = db.scalars(select(User).where(User.username == name.strip().lower())).first()
+    return u if u and check_password(pwd, u.pw_hash) else None
+
+
 @app.middleware("http")
-async def basic_auth(request: Request, call_next):
-    s = get_settings()
-    if s.dashboard_password and request.url.path not in HEALTH_PATHS:
-        ok = False
-        auth = request.headers.get("authorization", "")
-        if auth.lower().startswith("basic "):
-            try:
-                user, _, pwd = base64.b64decode(auth[6:]).decode().partition(":")
-                ok = (secrets.compare_digest(user, s.dashboard_user) and
-                      secrets.compare_digest(pwd, s.dashboard_password))
-            except Exception:  # noqa: BLE001
-                ok = False
-        if not ok:
-            return Response("Accés restringit", status_code=401,
-                            headers={"WWW-Authenticate": 'Basic realm="FV"'})
+async def require_login(request: Request, call_next):
+    path = request.url.path
+    request.state.user = None
+    if path in PUBLIC_PATHS or path.startswith("/static/"):
+        return await call_next(request)
+    with SessionLocal() as db:
+        if not users_exist(db):          # sense comptes (ús local): obert
+            return await call_next(request)
+        user = read_token(request.cookies.get(COOKIE), db) or _basic_user(request, db)
+        if user:
+            request.state.user = {"id": user.id, "username": user.username, "is_admin": user.is_admin}
+    if not request.state.user:
+        if path.startswith("/api/"):
+            return JSONResponse({"detail": "Cal iniciar sessió"}, status_code=401)
+        return RedirectResponse("/login", status_code=303)
     return await call_next(request)
+
+
+def _current(request: Request) -> dict | None:
+    return getattr(request.state, "user", None)
+
+
+def _require_admin(request: Request) -> None:
+    u = _current(request)
+    if u is not None and not u["is_admin"]:
+        raise HTTPException(403, "Només l'administrador pot gestionar comptes")
+
+
+@app.get("/login")
+def login_page():
+    return FileResponse(ROOT / "static" / "login.html")
+
+
+@app.post("/api/login")
+def login(payload: dict = Body(...)):
+    from .db import User
+    name = str(payload.get("username", "")).strip().lower()
+    pwd = str(payload.get("password", ""))
+    with SessionLocal() as db:
+        u = db.scalars(select(User).where(User.username == name)).first()
+        if not u or not check_password(pwd, u.pw_hash):
+            raise HTTPException(401, "Usuari o contrasenya incorrectes")
+        resp = JSONResponse({"ok": True, "username": u.username})
+        resp.set_cookie(COOKIE, make_token(u), max_age=MAX_AGE, httponly=True,
+                        samesite="lax", secure=get_settings().cookie_secure)
+        return resp
+
+
+@app.post("/api/logout")
+def logout():
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(COOKIE)
+    return resp
+
+
+@app.get("/api/me")
+def me(request: Request):
+    u = _current(request)
+    return u or {"id": None, "username": None, "is_admin": True, "open": True}
+
+
+def _valid_username(name: str) -> str:
+    import re
+    name = name.strip().lower()
+    if not re.fullmatch(r"[a-z0-9._-]{3,40}", name):
+        raise HTTPException(400, "L'usuari ha de tenir 3-40 caràcters: lletres, números, punt, guió")
+    return name
+
+
+def _valid_password(pwd: str) -> str:
+    if len(pwd) < 6:
+        raise HTTPException(400, "La contrasenya ha de tenir almenys 6 caràcters")
+    return pwd
+
+
+def _user_json(u) -> dict:
+    return {"id": u.id, "username": u.username, "is_admin": u.is_admin, "created": _iso(u.created)}
+
+
+@app.get("/api/users")
+def list_users(request: Request):
+    from .db import User
+    _require_admin(request)
+    with SessionLocal() as db:
+        return [_user_json(u) for u in db.scalars(select(User).order_by(User.username))]
+
+
+@app.post("/api/users")
+def create_user(request: Request, payload: dict = Body(...)):
+    from .db import User
+    _require_admin(request)
+    name = _valid_username(str(payload.get("username", "")))
+    pwd = _valid_password(str(payload.get("password", "")))
+    with SessionLocal() as db:
+        if db.scalars(select(User).where(User.username == name)).first():
+            raise HTTPException(400, "Aquest usuari ja existeix")
+        u = User(username=name, pw_hash=hash_password(pwd), is_admin=bool(payload.get("is_admin")),
+                 created=datetime.now(timezone.utc))
+        db.add(u)
+        db.commit()
+        return _user_json(u)
+
+
+@app.put("/api/users/{user_id}")
+def update_user(user_id: int, request: Request, payload: dict = Body(...)):
+    """L'administrador pot canviar-ho tot; cada usuari, la seva contrasenya."""
+    from .db import User
+    me_ = _current(request)
+    if me_ is not None and not me_["is_admin"] and me_["id"] != user_id:
+        raise HTTPException(403, "Només pots canviar la teva contrasenya")
+    with SessionLocal() as db:
+        u = db.get(User, user_id)
+        if not u:
+            raise HTTPException(404, "No existeix")
+        if payload.get("password"):
+            u.pw_hash = hash_password(_valid_password(str(payload["password"])))
+        if "is_admin" in payload and (me_ is None or me_["is_admin"]):
+            if not payload["is_admin"] and u.is_admin and _admin_count(db) <= 1:
+                raise HTTPException(400, "Ha de quedar almenys un administrador")
+            u.is_admin = bool(payload["is_admin"])
+        db.commit()
+        resp = JSONResponse(_user_json(u))
+        if me_ and me_["id"] == u.id:   # renova la galeta si canvia la pròpia contrasenya
+            resp.set_cookie(COOKIE, make_token(u), max_age=MAX_AGE, httponly=True,
+                            samesite="lax", secure=get_settings().cookie_secure)
+        return resp
+
+
+def _admin_count(db) -> int:
+    from sqlalchemy import func
+    from .db import User
+    return db.scalar(select(func.count()).select_from(User).where(User.is_admin.is_(True))) or 0
+
+
+@app.delete("/api/users/{user_id}")
+def delete_user(user_id: int, request: Request):
+    from .db import User
+    _require_admin(request)
+    me_ = _current(request)
+    with SessionLocal() as db:
+        u = db.get(User, user_id)
+        if not u:
+            raise HTTPException(404, "No existeix")
+        if me_ and me_["id"] == u.id:
+            raise HTTPException(400, "No pots esborrar el teu propi compte")
+        if u.is_admin and _admin_count(db) <= 1:
+            raise HTTPException(400, "Ha de quedar almenys un administrador")
+        db.delete(u)
+        db.commit()
+        return {"ok": True}
 
 
 def _iso(ts: datetime) -> str:
@@ -383,6 +535,23 @@ def raw():
 def collect():
     try:
         return {"snapshot_id": collect_once(keep_night=True)}
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"No se pudo leer el inversor: {e}") from e
+
+
+@app.api_route("/api/cron", methods=["GET", "POST"])
+def cron(key: str = ""):
+    """Per a un cron extern (p. ex. cron-job.org) cada 10 min.
+
+    Llegeix l'inversor i guarda, i de pas manté despert el servidor de Render.
+    Protegit amb CRON_KEY (paràmetre ?key=).
+    """
+    import os
+    expected = os.getenv("CRON_KEY", "")
+    if not expected or not hmac.compare_digest(key, expected):
+        raise HTTPException(403, "Clau incorrecta")
+    try:
+        return {"snapshot_id": collect_once()}
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"No se pudo leer el inversor: {e}") from e
 

@@ -89,6 +89,16 @@ class AlertRule(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+class User(Base):
+    """Compte per entrar al tauler (vegeu app/auth.py)."""
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String(40), unique=True)
+    pw_hash: Mapped[str] = mapped_column(String(200))
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    created: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 def _url() -> str:
     url = get_settings().database_url
     if not url:
@@ -109,3 +119,5 @@ def init_db() -> None:
     Base.metadata.create_all(engine)
     from .rules import seed_default_rules
     seed_default_rules()
+    from .auth import seed_admin
+    seed_admin()

@@ -122,6 +122,34 @@
     </section>
   </div>
 
+  <!-- Pàgina: comptes -->
+  <div class="page" data-page="comptes" hidden>
+    <section class="card">
+      <div class="card-h"><h2>El meu compte</h2><button id="logoutBtn" class="link">Tancar sessió</button></div>
+      <p class="note" id="meInfo"></p>
+      <form id="pwdForm" class="aform">
+        <label>Nova contrasenya<input id="pNew" type="password" autocomplete="new-password" minlength="6" required></label>
+        <label>Repeteix-la<input id="pNew2" type="password" autocomplete="new-password" minlength="6" required></label>
+        <p id="pErr" class="err"></p>
+        <div class="factions"><button type="submit" class="btn">Canviar contrasenya</button></div>
+      </form>
+    </section>
+
+    <section class="card" id="usersCard" hidden>
+      <div class="card-h"><h2>Comptes</h2><button id="newUserBtn" class="btn">+ Nou compte</button></div>
+      <form id="userForm" class="aform" hidden>
+        <div class="row2">
+          <label>Usuari<input id="uName" autocapitalize="none" maxlength="40" required></label>
+          <label>Contrasenya<input id="uPwd" type="password" autocomplete="new-password" minlength="6" required></label>
+        </div>
+        <label class="chk"><input type="checkbox" id="uAdmin"> Administrador (pot gestionar comptes)</label>
+        <p id="uErr" class="err"></p>
+        <div class="factions"><button type="button" id="uCancel" class="link">Cancel·lar</button><button type="submit" class="btn">Crear</button></div>
+      </form>
+      <ul id="users" class="rules"></ul>
+    </section>
+  </div>
+
   <p class="foot">Les dades s'actualitzen soles cada minut.</p>
 </main>
 
@@ -138,6 +166,9 @@
   <a href="#alarmes" data-tab="alarmes">
     <svg viewBox="0 0 24 24"><path d="M12 3 2.5 20h19z"/><path d="M12 10v4M12 17v.5"/></svg>
     <span>Alarmes</span><b id="alertCount" class="count" hidden></b></a>
+  <a href="#comptes" data-tab="comptes">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+    <span>Comptes</span></a>
 </nav>
 <script src="/static/app.js"></script>
 </body>
