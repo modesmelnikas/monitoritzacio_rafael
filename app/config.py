@@ -137,7 +137,9 @@ class Settings:
 
     @property
     def use_simulator(self) -> bool:
-        return self.simulate or not self.has_solis_credentials
+        # Solo si se pide expresamente: así la web en Render (que no lleva las
+        # claves de Solis) nunca mete datos falsos en la base de datos real.
+        return self.simulate
 
 
 @lru_cache

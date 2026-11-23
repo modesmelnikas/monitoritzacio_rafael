@@ -47,6 +47,45 @@ el mismo instante deben dar casi la misma corriente por string. Con radiación s
 
 Los umbrales están en `plant.yaml` → `analysis`.
 
+## Cómo funciona (montaje gratuito)
+
+```
+GitHub Actions (cada 10 min de día) ──► SolisCloud API
+          │
+          ▼
+   Neon (Postgres gratis) ◄── Render (web gratis, solo dashboard)
+```
+
+- **Lecturas**: `.github/workflows/leer-inversor.yml` ejecuta `python -m app.poller`
+  cada 10 minutos de 5:00 a 19:50 UTC. De noche (inversor sin producción) no
+  guarda nada. Gratis porque el repositorio es público.
+- **Base de datos**: Neon, proyecto `monitoritzacio-rafael`, base de datos `fv`
+  (plan gratis: 0,5 GB, no caduca). Las tablas se crean solas en la primera lectura.
+  Solo se guarda la última respuesta cruda de SolisCloud, para ocupar poco
+  (≈ 100 MB al año, unos 5 años en el plan gratis).
+- **Web**: Render plan *free*. Si nadie la abre en 15 min se duerme y la siguiente
+  visita tarda ~30 s en cargar; los datos no se pierden.
+
+### Puesta en marcha
+
+1. **Neon** → proyecto `monitoritzacio-rafael` → *Connect* → copiar la
+   *connection string* (`postgresql://...`).
+2. **GitHub** → *Settings → Secrets and variables → Actions → New repository secret*:
+   `DATABASE_URL` (la de Neon), `SOLIS_KEY_ID`, `SOLIS_KEY_SECRET`, `SOLIS_INVERTER_SN`.
+3. Fusionar el PR a `main` (las tareas programadas solo corren desde `main`).
+4. **Actions → Leer inversor → Run workflow** para probar ya. Si sale en verde, ya
+   está guardando.
+5. **Render** → *New → Blueprint* → este repositorio. Rellenar `DATABASE_URL` (la
+   misma de Neon) y `DASHBOARD_PASSWORD`.
+6. Abrir `https://<tu-app>.onrender.com/api/raw` para revisar la respuesta de
+   SolisCloud y confirmar el mapeo de tensiones (ver suposiciones).
+
+Las credenciales de API se piden en SolisCloud (*Account → Basic Settings → API
+Management*) o al soporte de Solis.
+
+**Ojo**: GitHub desactiva las tareas programadas si el repositorio pasa 60 días sin
+cambios; avisa por correo y se reactiva con un clic en *Actions*.
+
 ## Probar en local
 
 ```bash
@@ -55,26 +94,9 @@ SIMULATE=true uvicorn app.main:app --reload
 # http://localhost:8000
 ```
 
-Sin credenciales funciona en **modo simulado** (rellena 2 días de histórico, con
-el S3 del 121 al 70 % y un string del paralelo del 124 cortado).
-Tests: `pytest`.
-
-## Desplegar en Render
-
-1. En Render: **New → Blueprint** y elegir este repositorio (usa `render.yaml`).
-2. Rellenar las variables secretas: `SOLIS_KEY_ID`, `SOLIS_KEY_SECRET`,
-   `SOLIS_INVERTER_SN` (o `SOLIS_INVERTER_ID`) y `DASHBOARD_PASSWORD`.
-3. Abrir la URL; usuario `rafael` y la contraseña puesta.
-
-Las credenciales de API se piden a Solis (en SolisCloud: *Account → Basic
-Settings → API Management*, o vía soporte de Solis).
-
-**Coste**: el plan *free* de Render se duerme tras 15 min sin visitas y deja de
-leer el inversor, y su Postgres gratuito caduca a los 30 días. El blueprint usa
-*starter* (≈7 $/mes) + Postgres *basic* (≈6 $/mes). Alternativa barata: web en
-*free* + Postgres gratuito de Neon en `DATABASE_URL` + un ping externo cada 10 min
-(p. ej. cron-job.org a `/healthz`) o un Cron Job de Render con `python -m app.poller`
-y `RUN_SCHEDULER=false`.
+Con `SIMULATE=true` rellena 2 días de histórico simulado (el S3 del 121 al 70 %
+y un string del paralelo del 124 cortado, para ver las alarmas). Sin
+`SIMULATE=true` nunca genera datos falsos. Tests: `pytest`.
 
 ## API
 
@@ -84,15 +106,16 @@ y `RUN_SCHEDULER=false`.
 | `GET /api/history?hours=24&tracker=114` | Serie temporal por string |
 | `GET /api/daily?days=7` | kWh y kWh/kWp por string y día |
 | `GET /api/raw` | Respuesta cruda de SolisCloud (para revisar el mapeo) |
-| `POST /api/collect` | Fuerza una lectura |
+| `POST /api/collect` | Fuerza una lectura (solo si el servidor tiene las claves de Solis) |
 
 ## Estructura
 
 ```
 app/solis.py      cliente SolisCloud (firma HMAC-SHA1) y mapeo de campos
 app/analysis.py   comparación entre strings
-app/poller.py     lectura periódica y guardado
-app/main.py       API + planificador (FastAPI)
+app/poller.py     lectura y guardado (lo lanza GitHub Actions)
+app/main.py       API + dashboard (FastAPI)
+.github/workflows leer-inversor.yml (cada 10 min) y tests.yml
 static/           dashboard (HTML/CSS/JS sin dependencias)
 plant.yaml        seguidores, strings, posiciones y umbrales
 ```

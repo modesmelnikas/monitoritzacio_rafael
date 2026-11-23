@@ -26,7 +26,7 @@ LOCAL_TZ = ZoneInfo("Europe/Madrid")
 async def lifespan(app: FastAPI):
     init_db()
     settings = get_settings()
-    if settings.use_simulator:
+    if settings.simulate:
         from .poller import backfill_simulation
         backfill_simulation()
     scheduler = None
@@ -77,7 +77,7 @@ def healthz():
 
 @app.get("/api/status")
 def status():
-    plant, settings = get_plant(), get_settings()
+    plant = get_plant()
     with SessionLocal() as db:
         snap = db.scalars(select(Snapshot).order_by(Snapshot.ts.desc()).limit(1)).first()
         readings = []
@@ -91,7 +91,7 @@ def status():
         "plant": {"name": plant.name, "string_wp": plant.string_wp,
                   "kwp": round(plant.string_wp * plant.total_strings / 1000, 2),
                   "strings": plant.total_strings},
-        "simulated": settings.use_simulator,
+        "simulated": bool(snap and snap.source == "sim"),
         "snapshot": None if not snap else {
             "ts": _iso(snap.ts), "source": snap.source, "ac_power_w": snap.ac_power_w,
             "day_energy_kwh": snap.day_energy_kwh},
@@ -159,7 +159,7 @@ def raw():
 @app.post("/api/collect")
 def collect():
     try:
-        return {"snapshot_id": collect_once()}
+        return {"snapshot_id": collect_once(keep_night=True)}
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"No se pudo leer el inversor: {e}") from e
 

@@ -116,3 +116,39 @@ def test_api_end_to_end():
         assert d["days"]
         assert c.post("/api/collect").status_code == 200
         assert c.get("/").status_code == 200
+
+
+def test_poller_real_mode_skips_night_and_keeps_only_last_raw(monkeypatch):
+    import app.poller as poller
+    from app.config import Settings
+    from app.db import SessionLocal, Snapshot, init_db
+    from sqlalchemy import select
+
+    init_db()
+    s = Settings(solis_key_id="k", solis_key_secret="s", solis_inverter_sn="SN", simulate=False)
+    monkeypatch.setattr(poller, "get_settings", lambda: s)
+
+    def detail(i):
+        d = {"pac": 50 if i else 0, "pacStr": "kW"}
+        d.update({f"uPv{m}": 340 for m in range(1, 11)})
+        d.update({f"iPv{k}": (14 if k % 2 else 7) * i for k in range(1, 21)})
+        return d
+
+    monkeypatch.setattr(poller, "fetch_inverter_detail", lambda _s: detail(0))
+    assert poller.collect_once() is None                       # de noche no guarda
+    monkeypatch.setattr(poller, "fetch_inverter_detail", lambda _s: detail(1))
+    a = poller.collect_once()
+    b = poller.collect_once()
+    with SessionLocal() as db:
+        assert db.get(Snapshot, a).raw is None                  # la cruda vieja se borra
+        assert db.get(Snapshot, b).raw["pac"] == 50
+        assert db.get(Snapshot, b).source == "solis"
+
+
+def test_no_simulation_without_flag(monkeypatch):
+    import pytest
+    import app.poller as poller
+    from app.config import Settings
+    monkeypatch.setattr(poller, "get_settings", lambda: Settings(simulate=False))
+    with pytest.raises(RuntimeError):
+        poller.collect_once()

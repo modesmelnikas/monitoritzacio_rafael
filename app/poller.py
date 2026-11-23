@@ -4,6 +4,8 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
+from sqlalchemy import update
+
 from .analysis import analyze
 from .config import get_plant, get_settings
 from .db import SessionLocal, Snapshot, StringReading, init_db
@@ -13,16 +15,30 @@ from .solis import fetch_inverter_detail, parse_detail
 log = logging.getLogger("poller")
 
 
-def collect_once(now: datetime | None = None) -> int:
+def _is_night(data: dict) -> bool:
+    currents = [s["current_a"] or 0 for s in data["strings"]]
+    return max(currents, default=0) < 0.05 and not (data["ac_power_w"] or 0) > 0
+
+
+def collect_once(now: datetime | None = None, keep_night: bool = False) -> int | None:
+    """Lee el inversor y guarda. Devuelve el id de la lectura o None si no se guarda."""
     settings, plant = get_settings(), get_plant()
     now = now or datetime.now(timezone.utc)
     if settings.use_simulator:
         data, raw, source = simulate(plant, now), None, "sim"
     else:
+        if not settings.has_solis_credentials:
+            raise RuntimeError("Faltan SOLIS_KEY_ID / SOLIS_KEY_SECRET / SOLIS_INVERTER_SN")
         raw = fetch_inverter_detail(settings)
         data, source = parse_detail(raw, plant), "solis"
+    if _is_night(data) and not keep_night and source == "solis":
+        log.info("Inversor sin producción: no se guarda la lectura")
+        return None
     result = analyze(data["strings"], plant)
     with SessionLocal() as db:
+        if raw is not None:
+            # solo se guarda la última respuesta cruda, para no llenar la base de datos
+            db.execute(update(Snapshot).where(Snapshot.raw.is_not(None)).values(raw=None))
         snap = Snapshot(ts=now, source=source, ac_power_w=data["ac_power_w"],
                         day_energy_kwh=data["day_energy_kwh"], raw=raw)
         db.add(snap)
@@ -62,7 +78,7 @@ def safe_collect() -> None:
         log.exception("Error leyendo el inversor")
 
 
-if __name__ == "__main__":  # python -m app.poller  (útil como Cron Job de Render)
+if __name__ == "__main__":  # python -m app.poller  (lo usa GitHub Actions)
     logging.basicConfig(level=logging.INFO)
     init_db()
     collect_once()
