@@ -283,7 +283,7 @@ async function selectTracker(id, scroll = true) {
     const names = (x.label || "").split("+");
     const n = Math.max(1, x.n_strings || names.length);
     return names.map((name) => `
-    <div class="sbox ${x.status}"><b>${esc(name)}</b><small>Entrada PV${x.input ?? ""}${n > 1 ? " · ½" : ""}</small>
+    <div class="sbox ${x.status}"><b>${esc(name)}</b><small>PV${x.input ?? ""}${n > 1 ? " · ½" : ""}</small>
       <div class="row"><span>I</span><span>${fmt(x.current_a == null ? null : x.current_a / n, 2, "A")}</span></div>
       <div class="row"><span>V</span><span>${fmt(x.voltage_v, 0, "V")}</span></div>
       <div class="row"><span>P</span><span>${fmtW(x.power_w == null ? null : x.power_w / n)}</span></div>
@@ -293,11 +293,12 @@ async function selectTracker(id, scroll = true) {
   if (scroll) $("detail").scrollIntoView({ behavior: "smooth", block: "nearest" });
   try {
     const h = await getJSON(`/api/history?hours=18&tracker=${encodeURIComponent(id)}`);
-    drawChart($("dChart"), h.series, t.strings.map((x) => x.string_id), Object.fromEntries(t.strings.map((x) => [x.string_id, x.n_strings || 1])));
+    drawChart($("dChart"), h.series, t.strings.map((x) => x.string_id), Object.fromEntries(t.strings.map((x) => [x.string_id, x.n_strings || 1])),
+      Object.fromEntries(t.strings.map((x) => [x.string_id, x.label])));
   } catch (e) { console.error(e); }
 }
 
-function drawChart(svg, series, ids, nOf = {}) {
+function drawChart(svg, series, ids, nOf = {}, labels = {}) {
   // corriente por string, para que una entrada con 2 en paralelo sea comparable
   series = Object.fromEntries(Object.entries(series).map(([k, v]) => [k, v.map((p) => ({ ...p, i: p.i == null ? null : p.i / (nOf[k] || 1) }))]));
   svg.innerHTML = "";
@@ -317,14 +318,23 @@ function drawChart(svg, series, ids, nOf = {}) {
   }
   const fmtH = (t) => new Date(t).toLocaleTimeString(LOC, { hour: "2-digit", minute: "2-digit" });
   [t0, (t0 + t1) / 2, t1].forEach((t, k) => { const tx = el("text", { x: X(t), y: H - 4, class: "axis", "text-anchor": ["start", "middle", "end"][k] }, svg); tx.textContent = fmtH(t); });
-  const colors = ["var(--accent)", "var(--warning)", "var(--ok)"];
-  ids.forEach((id, k) => {
+  // Una línia per string: S1 i S2 (paral·lel) porten la mateixa corrent, S2 discontínua
+  const colors = ["var(--accent)", "var(--warning)", "var(--ok)", "var(--alarm)"];
+  let k = 0;
+  ids.forEach((id) => {
     const s = series[id] || [];
-    if (!s.length) return;
-    const d = s.map((p, j) => (j ? "L" : "M") + X(+new Date(p.ts)).toFixed(1) + "," + Y(p.i || 0).toFixed(1)).join(" ");
-    el("path", { d, fill: "none", stroke: colors[k % 3], "stroke-width": 2, "vector-effect": "non-scaling-stroke" }, svg);
-    const tx = el("text", { x: L + 6 + k * 44, y: T + 10, class: "axis", fill: colors[k % 3] }, svg);
-    tx.textContent = id.split("-").slice(1).join("-") || id; tx.style.fill = colors[k % 3];
+    const names = (labels[id] || id.split("-").slice(1).join("-") || id).split("+");
+    names.forEach((name, j) => {
+      const c = colors[k % colors.length];
+      if (s.length) {
+        const d = s.map((p, q) => (q ? "L" : "M") + X(+new Date(p.ts)).toFixed(1) + "," + Y(p.i || 0).toFixed(1)).join(" ");
+        el("path", { d, fill: "none", stroke: c, "stroke-width": 2, "vector-effect": "non-scaling-stroke",
+                     ...(j ? { "stroke-dasharray": "6 4" } : {}) }, svg);
+      }
+      const tx = el("text", { x: L + 6 + k * 34, y: T + 10, class: "axis" }, svg);
+      tx.textContent = name; tx.style.fill = c;
+      k++;
+    });
   });
 }
 
