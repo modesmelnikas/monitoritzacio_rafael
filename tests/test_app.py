@@ -168,3 +168,14 @@ def test_parallel_and_single_inputs_compared_within_their_group():
     assert all(s[k]["status"] == "ok" for k in s if k.endswith("S1+S2"))
     assert s["114-S3"]["status"] == "alarm"
     assert s["117-S3"]["status"] == "ok"
+
+
+def test_health_is_public_when_password_set(monkeypatch):
+    from app.config import Settings
+    import app.main as main
+    monkeypatch.setattr(main, "get_settings", lambda: Settings(dashboard_password="x"))
+    with TestClient(main.app) as c:
+        assert c.get("/healthz").status_code == 200
+        assert c.get("/api/health").status_code == 200
+        assert c.get("/api/status").status_code == 401
+        assert c.get("/api/status", auth=("rafael", "x")).status_code == 200
