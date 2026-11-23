@@ -238,6 +238,9 @@ def backfill_day(day: str) -> int:
             if ts.astimezone(LOCAL_TZ).date().isoformat() != day:
                 continue
             data = parse_detail(pt, plant)
+            # a inverterDay, "pac" ve en W encara que pacStr digui kW
+            if data["ac_power_w"] and data["ac_power_w"] > 2e6:
+                data["ac_power_w"] /= 1000
             if _is_night(data) or any(abs((ts - h).total_seconds()) < 240 for h in have):
                 continue
             result = analyze(data["strings"], plant)
