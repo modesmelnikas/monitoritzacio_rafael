@@ -18,7 +18,7 @@ services:
       - key: RUN_SCHEDULER      # las lecturas las hace GitHub Actions
         value: "false"
       - key: POLL_MINUTES
-        value: "10"
+        value: "5"
       - key: SIMULATE
         value: "false"
       - key: DATABASE_URL       # la misma URL de Neon que el secret de GitHub

@@ -227,3 +227,14 @@ def test_auto_alert_needs_three_readings():
         with SessionLocal() as db:
             sync_alerts(db, t0 + timedelta(minutes=20 + 10 * k), bad); db.commit()
     assert state() == "open"
+
+
+def test_batch_skips_db_at_night(monkeypatch):
+    import app.poller as poller
+    from app.config import Settings
+    s = Settings(solis_key_id="k", solis_key_secret="s", solis_inverter_sn="SN", simulate=False)
+    monkeypatch.setattr(poller, "get_settings", lambda: s)
+    monkeypatch.setattr(poller, "fetch_inverter_detail",
+                        lambda _s: {"pac": 0, **{f"iPv{k}": 0 for k in range(1, 21)}})
+    monkeypatch.setattr(poller, "init_db", lambda: (_ for _ in ()).throw(AssertionError("DB")))
+    assert poller.run_batch(2, 0) == 0

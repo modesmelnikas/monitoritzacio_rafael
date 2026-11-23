@@ -117,17 +117,27 @@ def sync_alerts(db, now: datetime, result: dict) -> None:
             db.delete(a)
 
 
-def collect_once(now: datetime | None = None, keep_night: bool = False) -> int | None:
-    """Lee el inversor y guarda. Devuelve el id de la lectura o None si no se guarda."""
+def fetch_reading(now: datetime | None = None) -> tuple[datetime, dict, dict | None, str]:
+    """Lee el inversor (o el simulador) sin tocar la base de datos."""
     settings, plant = get_settings(), get_plant()
     now = now or datetime.now(timezone.utc)
     if settings.use_simulator:
-        data, raw, source = simulate(plant, now), None, "sim"
-    else:
-        if not settings.has_solis_credentials:
-            raise RuntimeError("Faltan SOLIS_KEY_ID / SOLIS_KEY_SECRET / SOLIS_INVERTER_SN")
-        raw = fetch_inverter_detail(settings)
-        data, source = parse_detail(raw, plant), "solis"
+        return now, simulate(plant, now), None, "sim"
+    if not settings.has_solis_credentials:
+        raise RuntimeError("Faltan SOLIS_KEY_ID / SOLIS_KEY_SECRET / SOLIS_INVERTER_SN")
+    raw = fetch_inverter_detail(settings)
+    return now, parse_detail(raw, plant), raw, "solis"
+
+
+def collect_once(now: datetime | None = None, keep_night: bool = False) -> int | None:
+    """Lee el inversor y guarda. Devuelve el id de la lectura o None si no se guarda."""
+    reading = fetch_reading(now)
+    return store_reading(*reading, keep_night=keep_night)
+
+
+def store_reading(now: datetime, data: dict, raw: dict | None, source: str,
+                  keep_night: bool = False) -> int | None:
+    settings, plant = get_settings(), get_plant()
     if _is_night(data) and not keep_night and source == "solis":
         log.info("Inversor sin producción: no se guarda la lectura")
         return None
@@ -189,7 +199,36 @@ def safe_collect() -> None:
         log.exception("Error leyendo el inversor")
 
 
-if __name__ == "__main__":  # python -m app.poller  (lo usa GitHub Actions)
-    logging.basicConfig(level=logging.INFO)
+def run_batch(readings: int = 1, interval_s: float = 300) -> int:
+    """Toma varias lecturas separadas `interval_s` y las guarda todas al final.
+
+    GitHub Actions arranca cada 10 min y toma 2 lecturas separadas 5 min: así hay
+    un dato cada 5 min pero la base de datos (Neon, plan gratuito con horas de
+    cómputo limitadas) solo se despierta una vez cada 10 min. Si todas las
+    lecturas son de noche, ni se conecta.
+    """
+    import time
+    batch = []
+    for k in range(max(1, readings)):
+        if k:
+            time.sleep(interval_s)
+        try:
+            batch.append(fetch_reading())
+        except Exception:  # noqa: BLE001 - si falla una, se guardan las demás
+            log.exception("Error leyendo el inversor")
+    batch = [b for b in batch if not (b[3] == "solis" and _is_night(b[1]))]
+    if not batch:
+        log.info("Nada que guardar (noche o sin lecturas)")
+        return 0
     init_db()
-    collect_once()
+    for b in batch:
+        store_reading(*b)
+    return len(batch)
+
+
+if __name__ == "__main__":  # python -m app.poller [lecturas] [segundos]  (GitHub Actions)
+    import sys
+    logging.basicConfig(level=logging.INFO)
+    n = int(sys.argv[1]) if len(sys.argv) > 1 else 1
+    gap = float(sys.argv[2]) if len(sys.argv) > 2 else 300
+    run_batch(n, gap)

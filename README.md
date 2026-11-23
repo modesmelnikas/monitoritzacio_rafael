@@ -51,19 +51,21 @@ Los umbrales están en `plant.yaml` → `analysis`.
 ## Cómo funciona (montaje gratuito)
 
 ```
-GitHub Actions (cada 10 min de día) ──► SolisCloud API
+GitHub Actions (una lectura cada 5 min de día) ──► SolisCloud API
           │
           ▼
    Neon (Postgres gratis) ◄── Render (web gratis, solo dashboard)
 ```
 
-- **Lecturas**: `.github/workflows/leer-inversor.yml` ejecuta `python -m app.poller`
-  cada 10 minutos de 5:00 a 19:50 UTC. De noche (inversor sin producción) no
+- **Lecturas**: `.github/workflows/leer-inversor.yml` arranca cada 10 minutos de
+  5:00 a 19:50 UTC y ejecuta `python -m app.poller 2 300`: toma 2 lecturas separadas
+  5 minutos y las guarda juntas, para que Neon solo se despierte una vez cada 10
+  minutos (el plan gratis da ~100 h de cómputo al mes). De noche (inversor sin producción) no
   guarda nada. Gratis porque el repositorio es público.
 - **Base de datos**: Neon, proyecto `monitoritzacio-rafael`, base de datos `fv`
   (plan gratis: 0,5 GB, no caduca). Las tablas se crean solas en la primera lectura.
   Solo se guarda la última respuesta cruda de SolisCloud, para ocupar poco
-  (≈ 100 MB al año, unos 5 años en el plan gratis).
+  (≈ 200 MB al año, unos 2-3 años en el plan gratis).
 - **Web**: Render plan *free*. Si nadie la abre en 15 min se duerme y la siguiente
   visita tarda ~30 s en cargar; los datos no se pierden.
 
