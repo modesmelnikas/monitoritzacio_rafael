@@ -350,3 +350,20 @@ def test_backfill_day_fills_gaps(monkeypatch):
     with SessionLocal() as db:
         assert db.scalar(select(func.sum(InputDaily.kwh)).where(InputDaily.day == day)) > 0
         assert db.scalar(select(func.count(Snapshot.id)).where(Snapshot.ts >= t0.astimezone(timezone.utc))) >= 6
+
+
+def test_no_new_alerts_outside_alarm_hours():
+    from sqlalchemy import func, select
+    from app.db import Alert, SessionLocal, init_db
+    from app.poller import sync_alerts
+    init_db()
+    cur = [7.0] * 20
+    cur[5] = 0.0
+    bad = analyze(_readings(cur), plant)
+    late = datetime(2031, 1, 1, 17, 30, tzinfo=timezone.utc)   # 18:30 a Madrid
+    with SessionLocal() as db:
+        before = db.scalar(select(func.count(Alert.id)))
+        for k in range(4):
+            sync_alerts(db, late, bad)
+        db.commit()
+        assert db.scalar(select(func.count(Alert.id))) == before

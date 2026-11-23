@@ -25,6 +25,8 @@ async function getJSON(url) {
 function renderHeader(s) {
   $("plantName").textContent = s.plant.name;
   $("simBadge").hidden = !s.simulated;
+  $("nightBadge").hidden = !s.night;
+  document.body.classList.toggle("is-night", !!s.night);
   if (s.snapshot) {
     const d = new Date(s.snapshot.ts);
     $("updated").textContent = "Lectura " + d.toLocaleString(LOC, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -77,6 +79,7 @@ function renderBars(s) {
   // S1 i S2 van en paral·lel a la mateixa entrada: cadascun mostra la meitat.
   const box = $("bars");
   box.innerHTML = "";
+  $("nightNote").hidden = !s.night;
   const cards = s.trackers.map((t) => ({
     t, rows: t.strings.flatMap((x) => {
       const names = (x.label || "").split("+");

@@ -114,7 +114,8 @@ y un string del paralelo del 124 cortado, para ver las alarmas). Sin
   corriente, diferencia dentro de un seguidor, desviación de un seguidor, tensión
   baja, potencia AC baja y datos antiguos. Cada regla tiene umbral, lecturas
   seguidas necesarias, seguidor (o todos) y gravedad. También se pueden crear
-  alarmas a mano.
+  alarmas a mano. Las alarmas automáticas solo se evalúan de 9:00 a 16:00
+  (`analysis.alarm_hours` en `plant.yaml`) para evitar falsas alarmas con sol bajo.
 
 ### Cuentas
 

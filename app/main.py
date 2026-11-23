@@ -18,7 +18,7 @@ from .auth import COOKIE, MAX_AGE, check_password, hash_password, make_token, re
 from .config import ROOT, get_plant, get_settings
 from .db import Alert, AlertRule, DailyEnergy, InputDaily, SessionLocal, Snapshot, StringReading, init_db
 from .solis import _scaled
-from .poller import collect_once, safe_collect
+from .poller import NIGHT_AC_W, collect_once, safe_collect
 
 logging.basicConfig(level=logging.INFO)
 LOCAL_TZ = ZoneInfo("Europe/Madrid")
@@ -256,6 +256,14 @@ def status():
         energy["year_kwh"] = round(sum(r.kwh for r in rows if r.day[:4] == today[:4]), 1)
     strings = [{"string_id": r.string_id, "tracker": r.tracker, "voltage_v": r.voltage_v,
                 "current_a": r.current_a, "power_w": r.power_w} for r in readings]
+    # De nit (o si fa més de 40 min que no hi ha lectura) es mostra tot a zero
+    night = False
+    if snap:
+        ts = snap.ts if snap.ts.tzinfo else snap.ts.replace(tzinfo=timezone.utc)
+        stale = datetime.now(timezone.utc) - ts > timedelta(minutes=40)
+        night = stale or (snap.ac_power_w or 0) < NIGHT_AC_W
+        if night:
+            strings = [{**x, "current_a": 0.0, "power_w": 0.0} for x in strings]
     result = analyze(strings, plant) if snap else analyze([], plant)
     return {
         "plant": {"name": plant.name, "string_wp": plant.string_wp,
@@ -263,9 +271,11 @@ def status():
                   "strings": plant.total_strings},
         "simulated": bool(snap and snap.source == "sim"),
         "snapshot": None if not snap else {
-            "ts": _iso(snap.ts), "source": snap.source, "ac_power_w": snap.ac_power_w,
+            "ts": _iso(snap.ts), "source": snap.source,
+            "ac_power_w": 0.0 if night else snap.ac_power_w,
             "day_energy_kwh": snap.day_energy_kwh},
         "energy": energy,
+        "night": night,
         **result,
     }
 

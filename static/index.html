@@ -12,7 +12,7 @@
 <header class="top">
   <div>
     <h1 id="plantName">PS CLUMA SCP</h1>
-    <p class="sub"><span id="updated">Carregant…</span> <span id="simBadge" class="badge" hidden>dades simulades</span></p>
+    <p class="sub"><span id="updated">Carregant…</span> <span id="simBadge" class="badge" hidden>dades simulades</span> <span id="nightBadge" class="badge night" hidden>☾ Nit · sense producció</span></p>
   </div>
   <button id="refreshBtn" class="refresh" aria-label="Actualitzar dades">
     <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg><span>Actualitzar</span>
@@ -58,6 +58,7 @@
   <div class="page" data-page="strings" hidden>
     <section class="card">
       <div class="card-h"><h2>Comparació de strings</h2></div>
+      <p id="nightNote" class="night-note" hidden>☾ Ara no hi ha producció: els valors es mostren a zero fins que torni a sortir el sol.</p>
       <div id="bars" class="sgrid"></div>
     </section>
   </div>
@@ -72,7 +73,6 @@
       <div class="pnav"><button id="prevP" aria-label="Anterior">‹</button><b id="periodLabel">–</b><button id="nextP" aria-label="Següent">›</button></div>
       <p class="note" id="trkTotal"></p>
       <div id="trkBars" class="trks"></div>
-      <p class="note">Energia DC de cada seguidor, calculada amb les lectures cada 10 min. La línia marca la mediana; en taronja o vermell, els que produeixen un 7 % o un 15 % menys.</p>
     </section>
   </div>
 
