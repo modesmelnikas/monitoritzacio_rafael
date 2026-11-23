@@ -177,5 +177,6 @@ def test_health_is_public_when_password_set(monkeypatch):
     with TestClient(main.app) as c:
         assert c.get("/healthz").status_code == 200
         assert c.get("/api/health").status_code == 200
+        assert c.get("/health").status_code == 200
         assert c.get("/api/status").status_code == 401
         assert c.get("/api/status", auth=("rafael", "x")).status_code == 200

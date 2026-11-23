@@ -43,7 +43,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Monitorización strings FV", lifespan=lifespan)
-HEALTH_PATHS = {"/healthz", "/api/health"}  # sin contraseña, para el health check de Render
+HEALTH_PATHS = {"/healthz", "/health", "/api/health"}  # sin contraseña, para el health check de Render
 
 
 @app.middleware("http")
@@ -73,6 +73,7 @@ def _iso(ts: datetime) -> str:
 
 @app.get("/healthz")
 @app.get("/api/health")
+@app.get("/health")
 def healthz():
     return {"ok": True}
 
