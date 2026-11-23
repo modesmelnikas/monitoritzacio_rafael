@@ -19,7 +19,9 @@ import httpx
 
 from .config import Plant, Settings
 
-CONTENT_TYPE = "application/json;charset=UTF-8"
+# El cliente de referencia de SolisCloud firma con "application/json" a secas;
+# con ";charset=UTF-8" el servidor responde "wrong sign".
+CONTENT_TYPE = "application/json"
 DETAIL_PATH = "/v1/api/inverterDetail"
 
 

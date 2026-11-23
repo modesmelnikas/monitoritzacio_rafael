@@ -32,7 +32,7 @@ def test_signature_matches_spec():
     md5 = base64.b64encode(hashlib.md5(b'{"sn":"X"}').digest()).decode()
     assert h["Content-MD5"] == md5
     assert h["Date"] == "Mon, 23 Nov 2026 12:00:00 GMT"
-    to_sign = f"POST\n{md5}\napplication/json;charset=UTF-8\n{h['Date']}\n/v1/api/inverterDetail"
+    to_sign = f"POST\n{md5}\napplication/json\n{h['Date']}\n/v1/api/inverterDetail"
     sig = base64.b64encode(hmac.new(b"SECRET", to_sign.encode(), hashlib.sha1).digest()).decode()
     assert h["Authorization"] == f"API KEY:{sig}"
 
