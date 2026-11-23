@@ -37,17 +37,22 @@ def test_signature_matches_spec():
     assert h["Authorization"] == f"API KEY:{sig}"
 
 
-def test_parse_detail_maps_mppt_voltage_and_input_current():
-    detail = {"pac": 55.2, "pacStr": "kW", "eToday": 210, "eTodayStr": "kWh"}
-    for m in range(1, 11):
-        detail[f"uPv{m}"] = 500 + m
-    for i in range(1, 21):
-        detail[f"iPv{i}"] = 14.0 if i % 2 else 7.0
-    out = parse_detail(detail, plant)
-    assert out["ac_power_w"] == 55200
+# Respuesta real de SolisCloud (Solis-100K-5G, 23/11/2026 15:37), campos usados
+REAL = {"pac": 20.24, "pacStr": "kW", "eToday": 156.5, "eTodayStr": "kWh",
+        "uPv1": 388.6, "iPv1": 3.7, "uPv2": 388.6, "iPv2": 1.4, "uPv3": 356.1, "iPv3": 4,
+        "uPv4": 356.1, "iPv4": 1.9, "pow1": 1438, "pow2": 544, "pow3": 1424, "pow4": 677,
+        "uPv19": 388.9, "iPv19": 4.3, "uPv20": 388.9, "iPv20": 1.8, "pow19": 1672, "pow20": 700}
+
+
+def test_parse_detail_real_response():
+    out = parse_detail(REAL, plant)
+    assert out["ac_power_w"] == 20240
+    assert out["day_energy_kwh"] == 156.5
     s = {x["string_id"]: x for x in out["strings"]}
-    assert s["117-S1+S2"]["voltage_v"] == 502 and s["117-S3"]["voltage_v"] == 502
-    assert s["117-S1+S2"]["current_a"] == 14.0 and s["126-S3"]["current_a"] == 7.0
+    # 117 = MPPT 2 = entradas 3 y 4: su tensión es uPv3/uPv4, no uPv2
+    assert s["117-S1+S2"]["voltage_v"] == 356.1 and s["117-S3"]["voltage_v"] == 356.1
+    assert s["117-S1+S2"]["current_a"] == 4 and s["117-S3"]["power_w"] == 677
+    assert s["126-S1+S2"]["current_a"] == 4.3 and s["126-S3"]["voltage_v"] == 388.9
 
 
 def _readings(per_string, v=340):
@@ -130,7 +135,7 @@ def test_poller_real_mode_skips_night_and_keeps_only_last_raw(monkeypatch):
 
     def detail(i):
         d = {"pac": 50 if i else 0, "pacStr": "kW"}
-        d.update({f"uPv{m}": 340 for m in range(1, 11)})
+        d.update({f"uPv{m}": 340 for m in range(1, 21)})
         d.update({f"iPv{k}": (14 if k % 2 else 7) * i for k in range(1, 21)})
         return d
 
@@ -152,3 +157,14 @@ def test_no_simulation_without_flag(monkeypatch):
     monkeypatch.setattr(poller, "get_settings", lambda: Settings(simulate=False))
     with pytest.raises(RuntimeError):
         poller.collect_once()
+
+
+def test_parallel_and_single_inputs_compared_within_their_group():
+    # S3 da sistemáticamente un 25 % más por string que S1+S2: no es avería
+    cur = [2.0 if s.n_strings == 2 else 2.5 for s in plant.strings]
+    cur[1] = 1.6    # 114-S3: -36 % frente a las otras S3
+    r = analyze(_readings(cur), plant)
+    s = {x["string_id"]: x for t in r["trackers"] for x in t["strings"]}
+    assert all(s[k]["status"] == "ok" for k in s if k.endswith("S1+S2"))
+    assert s["114-S3"]["status"] == "alarm"
+    assert s["117-S3"]["status"] == "ok"
