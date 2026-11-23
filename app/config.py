@@ -13,17 +13,30 @@ ROOT = Path(__file__).resolve().parent.parent
 
 @dataclass
 class StringDef:
-    id: str            # p. ej. "114-A"
+    """Un punto de medida: una entrada PV del inversor.
+
+    Puede llevar uno o varios strings en paralelo (p. ej. S1+S2), y entonces su
+    corriente es la suma. Para comparar se usa la corriente por string.
+    """
+    id: str            # p. ej. "114-S1+S2"
     tracker: str       # "114"
     mppt: int          # 1..10
     input: int         # entrada PV del inversor, 1..20
+    names: list[str] = field(default_factory=lambda: ["S1"])
+
+    @property
+    def n_strings(self) -> int:
+        return len(self.names)
+
+    @property
+    def label(self) -> str:
+        return "+".join(self.names)
 
 
 @dataclass
 class TrackerDef:
     id: str
     mppt: int
-    inputs: list[int]
     x: float
     y: float
     strings: list[StringDef] = field(default_factory=list)
@@ -46,6 +59,10 @@ class Plant:
     def string_wp(self) -> float:
         return self.panel_wp * self.panels_per_string
 
+    @property
+    def total_strings(self) -> int:
+        return sum(s.n_strings for s in self.strings)
+
 
 def load_plant(path: str | Path | None = None) -> Plant:
     path = Path(path or os.getenv("PLANT_FILE", ROOT / "plant.yaml"))
@@ -53,11 +70,20 @@ def load_plant(path: str | Path | None = None) -> Plant:
     trackers = []
     for t in raw["trackers"]:
         td = TrackerDef(id=str(t["id"]), mppt=int(t["mppt"]),
-                        inputs=[int(i) for i in t["inputs"]],
                         x=float(t.get("x", 0)), y=float(t.get("y", 0)))
-        for letter, inp in zip("ABCDEFGH", td.inputs):
-            td.strings.append(StringDef(id=f"{td.id}-{letter}", tracker=td.id,
-                                        mppt=td.mppt, input=inp))
+        n = 0
+        for inp in t["inputs"]:
+            # admite "3" (un string) o {pv: 1, strings: [S1, S2]} (paralelo)
+            if isinstance(inp, dict):
+                pv = int(inp["pv"])
+                names = [str(x) for x in inp.get("strings") or []]
+                if not names:
+                    names = [f"S{n + 1}"]
+            else:
+                pv, names = int(inp), [f"S{n + 1}"]
+            n += len(names)
+            td.strings.append(StringDef(id=f"{td.id}-{'+'.join(names)}", tracker=td.id,
+                                        mppt=td.mppt, input=pv, names=names))
         trackers.append(td)
     p = raw.get("plant", {})
     analysis = {"min_median_current_a": 1.0, "warning_pct": 10, "alarm_pct": 25,

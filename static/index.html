@@ -21,7 +21,7 @@
   <section class="kpis">
     <div class="kpi"><span class="k-label">Potencia AC</span><span class="k-val" id="kAc">–</span></div>
     <div class="kpi"><span class="k-label">Potencia DC</span><span class="k-val" id="kDc">–</span></div>
-    <div class="kpi"><span class="k-label">Corriente media</span><span class="k-val" id="kImed">–</span></div>
+    <div class="kpi"><span class="k-label">Corriente media por string</span><span class="k-val" id="kImed">–</span></div>
     <div class="kpi"><span class="k-label">Hoy</span><span class="k-val" id="kDay">–</span></div>
   </section>
 
@@ -38,12 +38,12 @@
     <div class="card-h"><h2 id="dTitle">Seguidor</h2><button id="dClose" class="link">Cerrar</button></div>
     <div id="dMsgs"></div>
     <div class="strings" id="dStrings"></div>
-    <h3>Corriente hoy</h3>
+    <h3>Corriente por string, hoy</h3>
     <svg id="dChart" class="chart"></svg>
   </section>
 
   <section class="card">
-    <div class="card-h"><h2>Comparación de strings</h2><span class="hint">Corriente frente a la mediana</span></div>
+    <div class="card-h"><h2>Comparación de strings</h2><span class="hint">Corriente por string frente a la mediana</span></div>
     <div id="bars" class="bars"></div>
   </section>
 
@@ -53,7 +53,7 @@
   </section>
 
   <section class="card">
-    <div class="card-h"><h2>Rendimiento diario</h2><span class="hint">kWh/kWp por string</span></div>
+    <div class="card-h"><h2>Rendimiento diario</h2><span class="hint">kWh/kWp por entrada</span></div>
     <div class="scroll"><table id="daily" class="daily"></table></div>
   </section>
 </main>

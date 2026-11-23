@@ -52,9 +52,11 @@ function renderPlan(s) {
     // 30 paneles: 5 columnas x 6 filas, repartidas por igual entre los strings
     // (3 strings de 10 paneles -> 2 filas cada uno)
     const cols = 5, rows = 6, gap = 2, cw = (PW - gap * (cols - 1)) / cols, ch = (PH - gap * (rows - 1)) / rows;
-    const nStr = Math.max(1, t.strings.length);
+    // cada fila pertenece a un string; S1 y S2 en paralelo comparten la misma entrada
+    const perString = t.strings.flatMap((x) => Array(x.n_strings || 1).fill(x));
+    const nStr = Math.max(1, perString.length);
     for (let r = 0; r < rows; r++) {
-      const str = t.strings[Math.min(nStr - 1, Math.floor((r * nStr) / rows))];
+      const str = perString[Math.min(nStr - 1, Math.floor((r * nStr) / rows))];
       const cls = !str ? "" : str.status === "alarm" ? " dead" : str.status === "warning" ? " weak" : "";
       for (let c = 0; c < cols; c++)
         el("rect", { x: gx + c * (cw + gap), y: gy + r * (ch + gap), width: cw, height: ch, rx: 1.5, class: "cell" + cls }, g);
@@ -73,15 +75,15 @@ function renderBars(s) {
   const box = $("bars");
   box.innerHTML = "";
   const all = s.trackers.flatMap((t) => t.strings);
-  const max = Math.max(1, ...all.map((x) => x.current_a || 0)) * 1.05;
+  const max = Math.max(1, ...all.map((x) => x.current_per_string_a || 0)) * 1.05;
   const med = s.median_current_a;
   for (const x of all) {
     const row = document.createElement("div");
     row.className = "bar " + x.status;
-    const pct = ((x.current_a || 0) / max) * 100;
+    const pct = ((x.current_per_string_a || 0) / max) * 100;
     const medPct = med ? (med / max) * 100 : null;
     const dev = x.deviation_pct == null ? "" : (x.deviation_pct > 0 ? "+" : "") + x.deviation_pct.toFixed(0) + "%";
-    row.innerHTML = `<span>${esc(x.string_id)}</span><span class="track"><span class="fill" style="width:${pct}%"></span>${medPct ? `<span class="med" style="left:${medPct}%"></span>` : ""}</span><span class="val">${fmt(x.current_a, 1, "A")} ${dev}</span>`;
+    row.innerHTML = `<span>${esc(x.tracker)} ${esc(x.label)}</span><span class="track"><span class="fill" style="width:${pct}%"></span>${medPct ? `<span class="med" style="left:${medPct}%"></span>` : ""}</span><span class="val">${fmt(x.current_per_string_a, 1, "A")} ${dev}</span>`;
     row.addEventListener("click", () => selectTracker(x.tracker));
     box.appendChild(row);
   }
@@ -113,8 +115,9 @@ async function selectTracker(id, scroll = true) {
   $("dTitle").textContent = `Seguidor ${t.id} · MPPT ${t.mppt} · ${fmtW(t.power_w)}`;
   $("dMsgs").innerHTML = t.messages.map((m) => `<div class="msg ${t.status}">${esc(m)}</div>`).join("");
   $("dStrings").innerHTML = t.strings.map((x) => `
-    <div class="sbox ${x.status}"><b>${esc(x.string_id)}</b>
+    <div class="sbox ${x.status}"><b>${esc(x.label)}</b><small>Entrada PV${x.input ?? ""}${x.n_strings > 1 ? " · paralelo" : ""}</small>
       <div class="row"><span>I</span><span>${fmt(x.current_a, 2, "A")}</span></div>
+      ${x.n_strings > 1 ? `<div class="row"><span>I/str</span><span>${fmt(x.current_per_string_a, 2, "A")}</span></div>` : ""}
       <div class="row"><span>V</span><span>${fmt(x.voltage_v, 0, "V")}</span></div>
       <div class="row"><span>P</span><span>${fmtW(x.power_w)}</span></div>
       <div class="row"><span>Δ</span><span>${x.deviation_pct == null ? "–" : x.deviation_pct.toFixed(1) + " %"}</span></div>
@@ -122,11 +125,13 @@ async function selectTracker(id, scroll = true) {
   if (scroll) $("detail").scrollIntoView({ behavior: "smooth", block: "nearest" });
   try {
     const h = await getJSON(`/api/history?hours=18&tracker=${encodeURIComponent(id)}`);
-    drawChart($("dChart"), h.series, t.strings.map((x) => x.string_id));
+    drawChart($("dChart"), h.series, t.strings.map((x) => x.string_id), Object.fromEntries(t.strings.map((x) => [x.string_id, x.n_strings || 1])));
   } catch (e) { console.error(e); }
 }
 
-function drawChart(svg, series, ids) {
+function drawChart(svg, series, ids, nOf = {}) {
+  // corriente por string, para que una entrada con 2 en paralelo sea comparable
+  series = Object.fromEntries(Object.entries(series).map(([k, v]) => [k, v.map((p) => ({ ...p, i: p.i == null ? null : p.i / (nOf[k] || 1) }))]));
   svg.innerHTML = "";
   const W = 600, H = 160, L = 30, B = 18, T = 6;
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
@@ -151,7 +156,7 @@ function drawChart(svg, series, ids) {
     const d = s.map((p, j) => (j ? "L" : "M") + X(+new Date(p.ts)).toFixed(1) + "," + Y(p.i || 0).toFixed(1)).join(" ");
     el("path", { d, fill: "none", stroke: colors[k % 3], "stroke-width": 2, "vector-effect": "non-scaling-stroke" }, svg);
     const tx = el("text", { x: L + 6 + k * 44, y: T + 10, class: "axis", fill: colors[k % 3] }, svg);
-    tx.textContent = id; tx.style.fill = colors[k % 3];
+    tx.textContent = id.split("-").slice(1).join("-") || id; tx.style.fill = colors[k % 3];
   });
 }
 

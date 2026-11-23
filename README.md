@@ -10,32 +10,40 @@ para el móvil y muestra los seguidores sobre un plano.
 | | |
 |---|---|
 | Seguidores (2 ejes) | 114, 117, 119, 120, 121, 122, 123, 124, 125, 126 |
-| Por seguidor | 30 paneles de 210 W en 3 strings de 10 → 6,3 kWp |
+| Por seguidor | 30 paneles de 210 W en 3 strings de 10 (S1, S2, S3) → 6,3 kWp |
 | Total | 30 strings · 63 kWp |
+| Inversor | Solis 100 kW, 10 MPPT, 20 entradas PV |
 
-**Suposiciones a confirmar** (todas se cambian en `plant.yaml`, sin tocar código):
+**Cableado**: cada seguidor va a una MPPT, por orden (114 → MPPT 1 … 126 → MPPT 10).
+En la entrada impar van **S1 y S2 en paralelo**; en la par, **S3** solo
+(MPPT 1: PV1 = 114-S1+S2, PV2 = 114-S3).
 
-1. Cada seguidor va a una MPPT con sus 3 strings en entradas separadas, en el
-   orden de la lista (114 → MPPT 1 = PV1/PV2/PV3, 117 → MPPT 2 = PV4/PV5/PV6 …
-   126 → MPPT 10 = PV28/PV29/PV30). Si el inversor tiene menos de 30 entradas y
-   hay strings en paralelo, se pone una sola entrada en ese seguidor.
-2. SolisCloud da la tensión por MPPT (`uPv1..uPv10`) y la corriente por entrada
-   (`iPv1..iPv30`). Si da la tensión por entrada, poner `solis.voltage_by: input`.
+El inversor no distingue S1 de S2: ve su suma. Para comparar, la app usa la
+**corriente por string** (corriente de la entrada ÷ strings que lleva). Si uno
+de los dos del paralelo se corta, esa entrada cae un ~50 % y salta una alarma
+específica; un fallo parcial de S1 o S2 se ve a medias (un 20 % menos en un
+string es un 10 % menos en la entrada).
+
+**Suposiciones a confirmar** (se cambian en `plant.yaml`, sin tocar código):
+
+1. SolisCloud da la tensión por MPPT (`uPv1..uPv10`) y la corriente por entrada
+   (`iPv1..iPv20`). Si da la tensión por entrada, poner `solis.voltage_by: input`.
    Tras la primera lectura real, `/api/raw` enseña la respuesta cruda para comprobarlo.
-3. Posición de los seguidores en el plano: rejilla 5 × 2 provisional (`x`, `y`).
+2. Posición de los seguidores en el plano: rejilla 5 × 2 provisional (`x`, `y`).
 
 ## Qué detecta
 
 Todos los strings son iguales y todos los seguidores siguen al sol, así que en
-el mismo instante deben dar casi la misma corriente. Con radiación suficiente
+el mismo instante deben dar casi la misma corriente por string. Con radiación suficiente
 (mediana > 1 A):
 
-- **Aviso**: corriente un 10 % por debajo de la mediana; **alarma**: un 25 %.
-- **Alarma**: string a 0 A mientras los demás producen (fusible, conector).
+- **Aviso**: corriente por string un 10 % por debajo de la mediana; **alarma**: un 25 %.
+- **Alarma**: entrada a 0 A mientras las demás producen (fusible, conector).
+- **Alarma**: entrada en paralelo a la mitad → uno de S1/S2 no da corriente.
 - **Seguidor**: si todos sus strings están bajos a la vez → probable fallo de
   seguimiento (no orienta, parado, sombra).
 - **Tensión** de la MPPT un 5 % por debajo de la mediana → paneles en bypass.
-- **Rendimiento diario** (kWh/kWp por string, 7 días) para ver degradaciones lentas.
+- **Rendimiento diario** (kWh/kWp por entrada, 7 días) para ver degradaciones lentas.
 
 Los umbrales están en `plant.yaml` → `analysis`.
 
@@ -48,7 +56,7 @@ SIMULATE=true uvicorn app.main:app --reload
 ```
 
 Sin credenciales funciona en **modo simulado** (rellena 2 días de histórico, con
-el string 121-B al 65 % y el 124-A a 0 A para ver las alarmas).
+el S3 del 121 al 70 % y un string del paralelo del 124 cortado).
 Tests: `pytest`.
 
 ## Desplegar en Render

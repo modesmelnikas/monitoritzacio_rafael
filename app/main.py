@@ -89,7 +89,8 @@ def status():
     result = analyze(strings, plant) if snap else analyze([], plant)
     return {
         "plant": {"name": plant.name, "string_wp": plant.string_wp,
-                  "kwp": round(plant.string_wp * len(plant.strings) / 1000, 2)},
+                  "kwp": round(plant.string_wp * plant.total_strings / 1000, 2),
+                  "strings": plant.total_strings},
         "simulated": settings.use_simulator,
         "snapshot": None if not snap else {
             "ts": _iso(snap.ts), "source": snap.source, "ac_power_w": snap.ac_power_w,
@@ -135,12 +136,12 @@ def daily(days: int = Query(7, gt=0, le=90)):
                     energy.setdefault(day, {}).setdefault(sid, 0.0)
                     energy[day][sid] += kwh
             last[sid] = (ts, p)
+    kwp = {s.id: plant.string_wp * s.n_strings / 1000 for s in plant.strings}
     out = []
     for day in sorted(energy):
         vals = energy[day]
         out.append({"day": day, "kwh": {k: round(v, 2) for k, v in vals.items()},
-                    "kwh_per_kwp": {k: round(v / (plant.string_wp / 1000), 2)
-                                    for k, v in vals.items()}})
+                    "kwh_per_kwp": {k: round(v / kwp.get(k, 1), 2) for k, v in vals.items()}})
     return {"days": out, "strings": [s.id for s in plant.strings]}
 
 

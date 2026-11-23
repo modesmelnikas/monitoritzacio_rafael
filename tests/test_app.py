@@ -13,11 +13,17 @@ from app.solis import parse_detail, sign_headers
 plant = get_plant()
 
 
-def test_plant_has_10_trackers_30_strings():
+def test_plant_wiring():
     assert [t.id for t in plant.trackers] == ["114", "117", "119", "120", "121", "122",
                                               "123", "124", "125", "126"]
-    assert len(plant.strings) == 30
+    assert len(plant.strings) == 20          # 20 entradas del inversor
+    assert plant.total_strings == 30         # 30 strings de 10 paneles
     assert plant.string_wp == 2100
+    t = plant.trackers[0]
+    assert [(s.id, s.input, s.n_strings) for s in t.strings] == [
+        ("114-S1+S2", 1, 2), ("114-S3", 2, 1)]
+    t = plant.trackers[-1]
+    assert [s.input for s in t.strings] == [19, 20] and t.mppt == 10
 
 
 def test_signature_matches_spec():
@@ -35,43 +41,56 @@ def test_parse_detail_maps_mppt_voltage_and_input_current():
     detail = {"pac": 55.2, "pacStr": "kW", "eToday": 210, "eTodayStr": "kWh"}
     for m in range(1, 11):
         detail[f"uPv{m}"] = 500 + m
-    for i in range(1, 31):
-        detail[f"iPv{i}"] = 7.0
+    for i in range(1, 21):
+        detail[f"iPv{i}"] = 14.0 if i % 2 else 7.0
     out = parse_detail(detail, plant)
     assert out["ac_power_w"] == 55200
     s = {x["string_id"]: x for x in out["strings"]}
-    assert s["117-A"]["voltage_v"] == 502 and s["117-C"]["voltage_v"] == 502
-    assert s["126-C"]["current_a"] == 7.0
+    assert s["117-S1+S2"]["voltage_v"] == 502 and s["117-S3"]["voltage_v"] == 502
+    assert s["117-S1+S2"]["current_a"] == 14.0 and s["126-S3"]["current_a"] == 7.0
 
 
-def _strings(currents, v=500):
+def _readings(per_string, v=340):
+    """per_string: corriente por string de cada entrada (se multiplica por n)."""
     return [{"string_id": s.id, "tracker": s.tracker, "voltage_v": v,
-             "current_a": c, "power_w": v * c} for s, c in zip(plant.strings, currents)]
+             "current_a": c * s.n_strings, "power_w": v * c * s.n_strings}
+            for s, c in zip(plant.strings, per_string)]
 
 
-def test_analysis_flags_low_and_dead_strings():
-    cur = [7.0] * 30
-    cur[1] = 6.0    # 114-B  -14 % -> aviso
-    cur[6] = 0.0    # 119-A  sin corriente -> alarma
-    r = analyze(_strings(cur), plant)
+def test_parallel_input_is_normalised():
+    r = analyze(_readings([7.0] * 20), plant)
+    assert r["status"] == "ok"
     s = {x["string_id"]: x for t in r["trackers"] for x in t["strings"]}
-    assert s["114-A"]["status"] == "ok"
-    assert s["114-B"]["status"] == "warning"
-    assert s["119-A"]["status"] == "alarm"
+    assert s["114-S1+S2"]["current_a"] == 14.0
+    assert s["114-S1+S2"]["current_per_string_a"] == 7.0
+    assert s["114-S1+S2"]["deviation_pct"] == 0
+
+
+def test_analysis_flags_low_dead_and_half_parallel():
+    cur = [7.0] * 20
+    cur[1] = 6.0    # 114-S3      -14 % -> aviso
+    cur[5] = 0.0    # 119-S3      sin corriente -> alarma
+    cur[6] = 3.5    # 120-S1+S2   mitad -> un string del paralelo cortado
+    r = analyze(_readings(cur), plant)
+    s = {x["string_id"]: x for t in r["trackers"] for x in t["strings"]}
+    assert s["114-S1+S2"]["status"] == "ok"
+    assert s["114-S3"]["status"] == "warning"
+    assert s["119-S3"]["status"] == "alarm"
+    assert s["120-S1+S2"]["status"] == "alarm"
+    assert "paralelo" in s["120-S1+S2"]["message"]
     assert r["status"] == "alarm"
 
 
-def test_analysis_tracker_both_low_suggests_tracking_problem():
-    cur = [7.0] * 30
-    cur[9] = cur[10] = cur[11] = 4.0   # seguidor 120
-    r = analyze(_strings(cur), plant)
-    t = \
-        next(t for t in r["trackers"] if t["id"] == "120")
+def test_analysis_tracker_all_low_suggests_tracking_problem():
+    cur = [7.0] * 20
+    cur[8] = cur[9] = 5.0   # seguidor 121, las dos entradas
+    r = analyze(_readings(cur), plant)
+    t = next(t for t in r["trackers"] if t["id"] == "121")
     assert any("seguimiento" in m for m in t["messages"])
 
 
 def test_analysis_idle_at_night():
-    r = analyze(_strings([0.05] * 30), plant)
+    r = analyze(_readings([0.05] * 20), plant)
     assert not r["active"]
     assert all(x["status"] == "idle" for t in r["trackers"] for x in t["strings"])
 
@@ -80,8 +99,8 @@ def test_simulator_noon_has_faults():
     noon = datetime(2026, 6, 21, 11, 0, tzinfo=timezone.utc)  # 13:00 en Madrid
     r = analyze(simulate(plant, noon, seed=1)["strings"], plant)
     s = {x["string_id"]: x["status"] for t in r["trackers"] for x in t["strings"]}
-    assert s["124-A"] == "alarm" and s["121-B"] == "alarm"
-    assert s["114-A"] == "ok"
+    assert s["124-S1+S2"] == "alarm" and s["121-S3"] == "alarm"
+    assert s["114-S1+S2"] == "ok" and s["114-S3"] == "ok"
 
 
 def test_api_end_to_end():
@@ -89,6 +108,7 @@ def test_api_end_to_end():
     with TestClient(app) as c:
         st = c.get("/api/status").json()
         assert st["simulated"] is True
+        assert st["plant"]["strings"] == 30 and st["plant"]["kwp"] == 63.0
         assert len(st["trackers"]) == 10
         assert st["snapshot"] is not None
         assert c.get("/api/history?hours=24&tracker=114").json()["series"]
