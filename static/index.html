@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1720">
+<title>Seguidores FV</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div>
+    <h1 id="plantName">Instalación FV</h1>
+    <p class="sub"><span id="updated">Cargando…</span> <span id="simBadge" class="badge" hidden>datos simulados</span></p>
+  </div>
+  <div id="globalStatus" class="pill">…</div>
+</header>
+
+<main>
+  <section class="kpis">
+    <div class="kpi"><span class="k-label">Potencia AC</span><span class="k-val" id="kAc">–</span></div>
+    <div class="kpi"><span class="k-label">Potencia DC</span><span class="k-val" id="kDc">–</span></div>
+    <div class="kpi"><span class="k-label">Corriente media</span><span class="k-val" id="kImed">–</span></div>
+    <div class="kpi"><span class="k-label">Hoy</span><span class="k-val" id="kDay">–</span></div>
+  </section>
+
+  <section class="card">
+    <div class="card-h"><h2>Plano de seguidores</h2><span class="hint">Toca un seguidor</span></div>
+    <svg id="plan" role="img" aria-label="Plano de los seguidores"></svg>
+    <div class="legend">
+      <span><i class="dot ok"></i>Bien</span><span><i class="dot warning"></i>Aviso</span>
+      <span><i class="dot alarm"></i>Alarma</span><span><i class="dot idle"></i>Sin sol / sin dato</span>
+    </div>
+  </section>
+
+  <section class="card" id="detail" hidden>
+    <div class="card-h"><h2 id="dTitle">Seguidor</h2><button id="dClose" class="link">Cerrar</button></div>
+    <div id="dMsgs"></div>
+    <div class="strings" id="dStrings"></div>
+    <h3>Corriente hoy</h3>
+    <svg id="dChart" class="chart"></svg>
+  </section>
+
+  <section class="card">
+    <div class="card-h"><h2>Comparación de strings</h2><span class="hint">Corriente frente a la mediana</span></div>
+    <div id="bars" class="bars"></div>
+  </section>
+
+  <section class="card">
+    <div class="card-h"><h2>Avisos</h2></div>
+    <ul id="alerts" class="alerts"></ul>
+  </section>
+
+  <section class="card">
+    <div class="card-h"><h2>Rendimiento diario</h2><span class="hint">kWh/kWp por string</span></div>
+    <div class="scroll"><table id="daily" class="daily"></table></div>
+  </section>
+</main>
+<footer>Actualiza cada minuto · <a href="#" id="refresh">Actualizar ahora</a></footer>
+<script src="/static/app.js"></script>
+</body>
+</html>
