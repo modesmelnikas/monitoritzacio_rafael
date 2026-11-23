@@ -1,8 +1,6 @@
-# Lee el inversor Solis cada 5 minutos de día y guarda los datos en la
+# Lee el inversor Solis cada 10 minutos de día y guarda los datos en la
 # base de datos (Neon). Es gratis en un repositorio público.
-#
-# Arranca cada 10 min y toma 2 lecturas separadas 5 min (python -m app.poller 2 300):
-# así Neon solo se despierta una vez cada 10 min y no se gastan sus horas gratis.
+# (python -m app.poller 2 300 tomaría 2 lecturas separadas 5 min por ejecución.)
 #
 # Secrets necesarios (Settings > Secrets and variables > Actions):
 #   DATABASE_URL, SOLIS_KEY_ID, SOLIS_KEY_SECRET, SOLIS_INVERTER_SN
@@ -22,7 +20,7 @@ concurrency:
 jobs:
   leer:
     runs-on: ubuntu-latest
-    timeout-minutes: 9
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,7 +29,7 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - name: Leer SolisCloud y guardar
-        run: python -m app.poller 2 300
+        run: python -m app.poller
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SOLIS_KEY_ID: ${{ secrets.SOLIS_KEY_ID }}
