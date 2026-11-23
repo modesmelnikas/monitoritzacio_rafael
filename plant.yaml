@@ -16,7 +16,7 @@
 # Los 10 seguidores están en una sola fila (10 x 1), en este orden.
 
 plant:
-  name: "Instalación FV Rafael"
+  name: "PS CLUMA SCP"
   panel_wp: 210
   panels_per_string: 10
 
@@ -60,4 +60,5 @@ analysis:
   warning_pct: 10
   alarm_pct: 25
   # Desviación de tensión de MPPT respecto a la mediana (panel en bypass, etc.).
-  voltage_warning_pct: 5
+  # La tensió de cada MPPT varia força segons el punt de treball (ombres, sol baix).
+  voltage_warning_pct: 10

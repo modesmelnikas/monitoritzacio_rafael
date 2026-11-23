@@ -1,5 +1,6 @@
 # Lee el inversor Solis cada 10 minutos de día y guarda los datos en la
 # base de datos (Neon). Es gratis en un repositorio público.
+# (python -m app.poller 2 300 tomaría 2 lecturas separadas 5 min por ejecución.)
 #
 # Secrets necesarios (Settings > Secrets and variables > Actions):
 #   DATABASE_URL, SOLIS_KEY_ID, SOLIS_KEY_SECRET, SOLIS_INVERTER_SN

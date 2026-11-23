@@ -60,22 +60,22 @@ def analyze(strings: list[dict], plant: Plant) -> dict:
         i = per_string(s)
         s["current_per_string_a"] = None if i is None else round(i, 3)
         if i is None:
-            s.update(deviation_pct=None, status=NODATA, message="Sin dato")
+            s.update(deviation_pct=None, status=NODATA, message="Sense dada")
         elif not active:
-            s.update(deviation_pct=None, status=IDLE, message="Poca radiación")
+            s.update(deviation_pct=None, status=IDLE, message="Poca radiació")
         else:
             ref = med_group.get(n) or med_i
             dev = (i - ref) / ref * 100 if ref else 0.0
             s["deviation_pct"] = round(dev, 1)
             if i < 0.1:
-                s.update(status=ALARM, message="Entrada sin corriente (¿fusible, conector?)")
+                s.update(status=ALARM, message="Entrada sense corrent (fusible, connector?)")
             elif n > 1 and -100 / n - 12 <= dev <= -100 / n + 12:
-                s.update(status=ALARM, message=f"Corriente por string {dev:.0f} %: "
-                         f"probablemente uno de los {n} strings en paralelo no da corriente")
+                s.update(status=ALARM, message=f"Corrent per string {dev:.0f} %: "
+                         f"probablement un dels {n} strings en paral·lel no dona corrent")
             elif dev <= -float(cfg["alarm_pct"]):
-                s.update(status=ALARM, message=f"Corriente por string {dev:.0f} % respecto a las de su tipo")
+                s.update(status=ALARM, message=f"Corrent per string {dev:.0f} % respecte a les del seu tipus")
             elif dev <= -float(cfg["warning_pct"]):
-                s.update(status=WARNING, message=f"Corriente por string {dev:.0f} % respecto a las de su tipo")
+                s.update(status=WARNING, message=f"Corrent per string {dev:.0f} % respecte a les del seu tipus")
             else:
                 s.update(status=OK, message="")
         out_strings.append(s)
@@ -99,21 +99,28 @@ def analyze(strings: list[dict], plant: Plant) -> dict:
         statuses = [x["status"] for x in ss] or [NODATA]
         status = worst(*statuses)
         msgs = []
+        issues = []
         low = [x for x in ss if x["status"] in (WARNING, ALARM)]
         if active and len(ss) >= 2 and len(low) == len(ss):
-            msgs.append("Todos sus strings bajos: revisar seguimiento del seguidor")
+            msgs.append("Tots els strings baixos: revisar el seguiment del seguidor")
+            issues.append({"kind": "tracking", "severity": WARNING, "string_id": None,
+                           "text": msgs[-1]})
         v = tracker_v.get(t.id)
         v_dev = None
         if active and v and med_v:
             v_dev = round((v - med_v) / med_v * 100, 1)
             if v_dev <= -float(cfg["voltage_warning_pct"]):
                 status = worst(status, WARNING)
-                msgs.append(f"Tensión {v_dev:.0f} % baja (¿paneles en bypass?)")
+                msgs.append(f"Tensió {v_dev:.0f} % baixa (panells en bypass?)")
+                issues.append({"kind": "voltage", "severity": WARNING, "string_id": None,
+                               "text": msgs[-1]})
         msgs += [f"{x['label']}: {x['message']}" for x in low]
+        issues += [{"kind": "current", "severity": x["status"], "string_id": x["string_id"],
+                    "text": f"{x['label']}: {x['message']}"} for x in low]
         trackers.append({"id": t.id, "x": t.x, "y": t.y, "mppt": t.mppt,
                          "power_w": round(power, 1), "voltage_v": v,
                          "voltage_dev_pct": v_dev, "status": status,
-                         "messages": msgs, "strings": ss})
+                         "messages": msgs, "issues": issues, "strings": ss})
 
     return {"active": active, "median_current_a": med_i, "median_voltage_v": med_v,
             "median_by_group": {f"{n} string": round(m, 3) for n, m in med_group.items()},

@@ -82,7 +82,7 @@ def test_analysis_flags_low_dead_and_half_parallel():
     assert s["114-S3"]["status"] == "warning"
     assert s["119-S3"]["status"] == "alarm"
     assert s["120-S1+S2"]["status"] == "alarm"
-    assert "paralelo" in s["120-S1+S2"]["message"]
+    assert "paral·lel" in s["120-S1+S2"]["message"]
     assert r["status"] == "alarm"
 
 
@@ -91,7 +91,7 @@ def test_analysis_tracker_all_low_suggests_tracking_problem():
     cur[8] = cur[9] = 5.0   # seguidor 121, las dos entradas
     r = analyze(_readings(cur), plant)
     t = next(t for t in r["trackers"] if t["id"] == "121")
-    assert any("seguimiento" in m for m in t["messages"])
+    assert any("seguiment" in m for m in t["messages"])
 
 
 def test_analysis_idle_at_night():
@@ -180,3 +180,61 @@ def test_health_is_public_when_password_set(monkeypatch):
         assert c.get("/health").status_code == 200
         assert c.get("/api/status").status_code == 401
         assert c.get("/api/status", auth=("rafael", "x")).status_code == 200
+
+
+def test_alert_register_auto_and_manual():
+    from app.main import app
+    with TestClient(app) as c:
+        auto = c.get("/api/alerts").json()["alerts"]
+        assert any(a["source"] == "auto" and a["string_id"] == "121-S3" for a in auto)
+        # una sola alarma oberta per problema, encara que es repeteixi
+        assert len([a for a in auto if a["string_id"] == "121-S3"]) == 1
+        r = c.post("/api/alerts", json={"title": "Panell trencat", "tracker": "120",
+                                        "severity": "alarm", "notes": "Fila 3"})
+        assert r.status_code == 200 and r.json()["source"] == "manual"
+        aid = r.json()["id"]
+        assert c.post("/api/alerts", json={"title": ""}).status_code == 422
+        assert c.post(f"/api/alerts/{aid}/close", json={"notes": "Canviat"}).json()["state"] == "closed"
+        assert all(a["id"] != aid for a in c.get("/api/alerts").json()["alerts"])
+        assert any(a["id"] == aid for a in c.get("/api/alerts?state=closed").json()["alerts"])
+
+
+def test_auto_alert_needs_three_readings():
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import select
+    from app.db import Alert, SessionLocal, init_db
+    from app.poller import sync_alerts
+    init_db()
+    cur = [7.0] * 20
+    cur[3] = 3.0                       # 117-S3
+    bad = analyze(_readings(cur), plant)
+    good = analyze(_readings([7.0] * 20), plant)
+    t0 = datetime(2030, 1, 1, 12, tzinfo=timezone.utc)
+
+    def state():
+        with SessionLocal() as db:
+            a = db.scalars(select(Alert).where(Alert.string_id == "117-S3",
+                                               Alert.created >= t0)).first()
+            return a and a.state
+
+    with SessionLocal() as db:
+        sync_alerts(db, t0, bad); db.commit()
+    assert state() == "pending"
+    with SessionLocal() as db:
+        sync_alerts(db, t0 + timedelta(minutes=10), good); db.commit()
+    assert state() is None             # ha desaparegut: no es registra
+    for k in range(3):
+        with SessionLocal() as db:
+            sync_alerts(db, t0 + timedelta(minutes=20 + 10 * k), bad); db.commit()
+    assert state() == "open"
+
+
+def test_batch_skips_db_at_night(monkeypatch):
+    import app.poller as poller
+    from app.config import Settings
+    s = Settings(solis_key_id="k", solis_key_secret="s", solis_inverter_sn="SN", simulate=False)
+    monkeypatch.setattr(poller, "get_settings", lambda: s)
+    monkeypatch.setattr(poller, "fetch_inverter_detail",
+                        lambda _s: {"pac": 0, **{f"iPv{k}": 0 for k in range(1, 21)}})
+    monkeypatch.setattr(poller, "init_db", lambda: (_ for _ in ()).throw(AssertionError("DB")))
+    assert poller.run_batch(2, 0) == 0

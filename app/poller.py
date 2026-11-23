@@ -2,15 +2,16 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import update
 
 from .analysis import analyze
 from .config import get_plant, get_settings
-from .db import SessionLocal, Snapshot, StringReading, init_db
-from .simulator import simulate
-from .solis import fetch_inverter_detail, parse_detail
+from .db import (Alert, DailyEnergy, InputDaily, SessionLocal, Snapshot, StringReading,
+                 init_db)
+from .simulator import LOCAL_TZ, simulate
+from .solis import fetch_inverter_detail, fetch_inverter_month, parse_detail, parse_month
 
 log = logging.getLogger("poller")
 
@@ -20,22 +21,129 @@ def _is_night(data: dict) -> bool:
     return max(currents, default=0) < 0.05 and not (data["ac_power_w"] or 0) > 0
 
 
-def collect_once(now: datetime | None = None, keep_night: bool = False) -> int | None:
-    """Lee el inversor y guarda. Devuelve el id de la lectura o None si no se guarda."""
+def save_daily(values: dict[str, float], now: datetime | None = None) -> None:
+    now = now or datetime.now(timezone.utc)
+    with SessionLocal() as db:
+        for day, kwh in values.items():
+            row = db.get(DailyEnergy, day)
+            if row:
+                row.kwh, row.updated = kwh, now
+            else:
+                db.add(DailyEnergy(day=day, kwh=kwh, updated=now))
+        db.commit()
+
+
+def sync_month_history(settings, now: datetime) -> None:
+    """Trae de SolisCloud la producción diaria del mes (y del anterior, la 1.ª vez)."""
+    from sqlalchemy import func, select
+    local = now.astimezone(LOCAL_TZ)
+    months = [local.strftime("%Y-%m")]
+    with SessionLocal() as db:
+        if (db.scalar(select(func.count()).select_from(DailyEnergy)) or 0) < 25:
+            prev = (local.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+            months.insert(0, prev)
+    for m in months:
+        records = fetch_inverter_month(settings, m)
+        if records:
+            log.info("inverterMonth %s: %d días, ejemplo %s", m, len(records), records[0])
+        save_daily(parse_month(records), now)
+
+
+MAX_GAP = timedelta(minutes=30)
+
+
+def _accumulate_energy(db, now: datetime, readings: list[dict]) -> None:
+    """Suma a input_daily la energía desde la lectura anterior (regla del trapecio)."""
+    from sqlalchemy import select
+    prev = db.scalars(select(Snapshot).order_by(Snapshot.ts.desc()).limit(1)).first()
+    if not prev:
+        return
+    pts = prev.ts if prev.ts.tzinfo else prev.ts.replace(tzinfo=timezone.utc)
+    dt = now - pts
+    day = now.astimezone(LOCAL_TZ).date().isoformat()
+    if not (timedelta(0) < dt <= MAX_GAP) or pts.astimezone(LOCAL_TZ).date().isoformat() != day:
+        return
+    p0 = {r.string_id: r.power_w or 0.0 for r in
+          db.scalars(select(StringReading).where(StringReading.snapshot_id == prev.id))}
+    hours = dt.total_seconds() / 3600
+    for r in readings:
+        if r["string_id"] not in p0:
+            continue
+        kwh = (p0[r["string_id"]] + (r["power_w"] or 0.0)) / 2 * hours / 1000
+        row = db.get(InputDaily, (day, r["string_id"]))
+        if row:
+            row.kwh += kwh
+        else:
+            db.add(InputDaily(day=day, string_id=r["string_id"], tracker=r["tracker"], kwh=kwh))
+
+
+CONFIRM_READINGS = 3   # lectures seguides abans de donar d'alta una alarma automàtica
+
+
+def sync_alerts(db, now: datetime, result: dict) -> None:
+    """Desa al registre les alarmes de l'anàlisi (una per problema).
+
+    Una alarma nova queda "pending" fins que es repeteix CONFIRM_READINGS lectures
+    seguides (~30 min); si abans desapareix, s'esborra. Així no s'omple el registre
+    amb ombres passatgeres o el sol baix.
+    """
+    from sqlalchemy import select
+    if not result.get("active"):
+        return
+    seen: set[int] = set()
+    for t in result["trackers"]:
+        for it in t.get("issues", []):
+            q = select(Alert).where(Alert.state.in_(("open", "pending")), Alert.source == "auto",
+                                    Alert.kind == it["kind"], Alert.tracker == t["id"])
+            q = q.where(Alert.string_id == it["string_id"]) if it["string_id"] else \
+                q.where(Alert.string_id.is_(None))
+            a = db.scalars(q).first()
+            if a:
+                a.last_seen, a.count, a.title = now, a.count + 1, it["text"]
+                if it["severity"] == "alarm":
+                    a.severity = "alarm"
+                if a.state == "pending" and a.count >= CONFIRM_READINGS:
+                    a.state = "open"
+            else:
+                a = Alert(created=now, last_seen=now, source="auto", kind=it["kind"],
+                          severity=it["severity"], tracker=t["id"], string_id=it["string_id"],
+                          title=it["text"], count=1,
+                          state="open" if CONFIRM_READINGS <= 1 else "pending")
+                db.add(a)
+                db.flush()
+            seen.add(a.id)
+    for a in db.scalars(select(Alert).where(Alert.state == "pending")):
+        if a.id not in seen:
+            db.delete(a)
+
+
+def fetch_reading(now: datetime | None = None) -> tuple[datetime, dict, dict | None, str]:
+    """Lee el inversor (o el simulador) sin tocar la base de datos."""
     settings, plant = get_settings(), get_plant()
     now = now or datetime.now(timezone.utc)
     if settings.use_simulator:
-        data, raw, source = simulate(plant, now), None, "sim"
-    else:
-        if not settings.has_solis_credentials:
-            raise RuntimeError("Faltan SOLIS_KEY_ID / SOLIS_KEY_SECRET / SOLIS_INVERTER_SN")
-        raw = fetch_inverter_detail(settings)
-        data, source = parse_detail(raw, plant), "solis"
+        return now, simulate(plant, now), None, "sim"
+    if not settings.has_solis_credentials:
+        raise RuntimeError("Faltan SOLIS_KEY_ID / SOLIS_KEY_SECRET / SOLIS_INVERTER_SN")
+    raw = fetch_inverter_detail(settings)
+    return now, parse_detail(raw, plant), raw, "solis"
+
+
+def collect_once(now: datetime | None = None, keep_night: bool = False) -> int | None:
+    """Lee el inversor y guarda. Devuelve el id de la lectura o None si no se guarda."""
+    reading = fetch_reading(now)
+    return store_reading(*reading, keep_night=keep_night)
+
+
+def store_reading(now: datetime, data: dict, raw: dict | None, source: str,
+                  keep_night: bool = False) -> int | None:
+    settings, plant = get_settings(), get_plant()
     if _is_night(data) and not keep_night and source == "solis":
         log.info("Inversor sin producción: no se guarda la lectura")
         return None
     result = analyze(data["strings"], plant)
     with SessionLocal() as db:
+        _accumulate_energy(db, now, data["strings"])
         if raw is not None:
             # solo se guarda la última respuesta cruda, para no llenar la base de datos
             db.execute(update(Snapshot).where(Snapshot.raw.is_not(None)).values(raw=None))
@@ -43,6 +151,7 @@ def collect_once(now: datetime | None = None, keep_night: bool = False) -> int |
                         day_energy_kwh=data["day_energy_kwh"], raw=raw)
         db.add(snap)
         db.flush()
+        sync_alerts(db, now, result)
         for t in result["trackers"]:
             for s in t["strings"]:
                 db.add(StringReading(snapshot_id=snap.id, ts=now, string_id=s["string_id"],
@@ -51,12 +160,19 @@ def collect_once(now: datetime | None = None, keep_night: bool = False) -> int |
                                      deviation_pct=s["deviation_pct"], status=s["status"]))
         db.commit()
         log.info("Lectura %s guardada (%s), estado %s", snap.id, source, result["status"])
-        return snap.id
+        snap_id = snap.id
+    if data.get("day_energy_kwh") is not None:
+        save_daily({now.astimezone(LOCAL_TZ).date().isoformat(): data["day_energy_kwh"]}, now)
+    if source == "solis":
+        try:
+            sync_month_history(settings, now)
+        except Exception:  # noqa: BLE001 - el histórico es secundario
+            log.exception("No se pudo leer la producción mensual de SolisCloud")
+    return snap_id
 
 
 def backfill_simulation(days: float = 2) -> int:
     """En modo simulado, rellena histórico para que el dashboard tenga curvas."""
-    from datetime import timedelta
     from sqlalchemy import func, select
     with SessionLocal() as db:
         if db.scalar(select(func.count(Snapshot.id))):
@@ -68,6 +184,11 @@ def backfill_simulation(days: float = 2) -> int:
         collect_once(t)
         t += step
         n += 1
+    import random
+    rnd = random.Random(7)
+    today = now.astimezone(LOCAL_TZ).date()
+    save_daily({(today - timedelta(days=k)).isoformat(): round(rnd.uniform(120, 330), 1)
+                for k in range(0, 45)}, now)
     return n
 
 
@@ -78,7 +199,36 @@ def safe_collect() -> None:
         log.exception("Error leyendo el inversor")
 
 
-if __name__ == "__main__":  # python -m app.poller  (lo usa GitHub Actions)
-    logging.basicConfig(level=logging.INFO)
+def run_batch(readings: int = 1, interval_s: float = 300) -> int:
+    """Toma varias lecturas separadas `interval_s` y las guarda todas al final.
+
+    GitHub Actions arranca cada 10 min y toma 2 lecturas separadas 5 min: así hay
+    un dato cada 5 min pero la base de datos (Neon, plan gratuito con horas de
+    cómputo limitadas) solo se despierta una vez cada 10 min. Si todas las
+    lecturas son de noche, ni se conecta.
+    """
+    import time
+    batch = []
+    for k in range(max(1, readings)):
+        if k:
+            time.sleep(interval_s)
+        try:
+            batch.append(fetch_reading())
+        except Exception:  # noqa: BLE001 - si falla una, se guardan las demás
+            log.exception("Error leyendo el inversor")
+    batch = [b for b in batch if not (b[3] == "solis" and _is_night(b[1]))]
+    if not batch:
+        log.info("Nada que guardar (noche o sin lecturas)")
+        return 0
     init_db()
-    collect_once()
+    for b in batch:
+        store_reading(*b)
+    return len(batch)
+
+
+if __name__ == "__main__":  # python -m app.poller [lecturas] [segundos]  (GitHub Actions)
+    import sys
+    logging.basicConfig(level=logging.INFO)
+    n = int(sys.argv[1]) if len(sys.argv) > 1 else 1
+    gap = float(sys.argv[2]) if len(sys.argv) > 2 else 300
+    run_batch(n, gap)

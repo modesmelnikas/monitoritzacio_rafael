@@ -1,90 +1,133 @@
 <!doctype html>
-<html lang="es">
+<html lang="ca">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0f1720">
-<title>Seguidores FV</title>
+<title>PS CLUMA SCP</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <header class="top">
   <div>
-    <h1 id="plantName">Instalación FV</h1>
-    <p class="sub"><span id="updated">Cargando…</span> <span id="simBadge" class="badge" hidden>datos simulados</span></p>
+    <h1 id="plantName">PS CLUMA SCP</h1>
+    <p class="sub"><span id="updated">Carregant…</span> <span id="simBadge" class="badge" hidden>dades simulades</span></p>
   </div>
-  <div id="globalStatus" class="pill">…</div>
+  <button id="refreshBtn" class="refresh" aria-label="Actualitzar dades">
+    <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg><span>Actualitzar</span>
+  </button>
 </header>
 
 <main>
-  <!-- Página 1: plano -->
-  <div class="page" data-page="plano">
+  <!-- Pàgina: plànol -->
+  <div class="page" data-page="planol">
     <section class="kpis">
-      <div class="kpi"><span class="k-label">Potencia AC</span><span class="k-val" id="kAc">–</span></div>
-      <div class="kpi"><span class="k-label">Potencia DC</span><span class="k-val" id="kDc">–</span></div>
-      <div class="kpi"><span class="k-label">Corriente media por string</span><span class="k-val" id="kImed">–</span></div>
-      <div class="kpi"><span class="k-label">Hoy</span><span class="k-val" id="kDay">–</span></div>
+      <div class="kpi"><span class="k-label">Potència AC</span><span class="k-val" id="kAc">–</span></div>
+      <div class="kpi"><span class="k-label">Producció avui</span><span class="k-val" id="kDay">–</span></div>
+      <div class="kpi"><span class="k-label">Producció mes</span><span class="k-val" id="kMonth">–</span></div>
+      <div class="kpi"><span class="k-label">Producció any</span><span class="k-val" id="kYear">–</span></div>
     </section>
 
     <section class="card">
-      <div class="card-h"><h2>Plano de seguidores</h2><span class="hint">Desliza ↔ · toca uno</span></div>
-      <div class="plan-wrap"><svg id="plan" role="img" aria-label="Plano de los seguidores"></svg></div>
+      <div class="card-h"><h2>Plànol de seguidors</h2><span class="hint">Toca un seguidor</span></div>
+      <svg id="plan" role="img" aria-label="Plànol dels seguidors"></svg>
       <div class="legend">
-        <span><i class="dot ok"></i>Bien</span><span><i class="dot warning"></i>Aviso</span>
-        <span><i class="dot alarm"></i>Alarma</span><span><i class="dot idle"></i>Sin sol / sin dato</span>
+        <span><i class="dot ok"></i>Bé</span><span><i class="dot warning"></i>Avís</span>
+        <span><i class="dot alarm"></i>Alarma</span><span><i class="dot idle"></i>Sense sol / sense dada</span>
       </div>
     </section>
 
+    <section class="card">
+      <div class="card-h"><h2>Producció diària</h2><span class="hint" id="prodHint">Tots els seguidors · kWh</span></div>
+      <svg id="prodChart" class="chart prod" role="img" aria-label="Producció diària en kWh"></svg>
+    </section>
+
     <section class="card" id="detail" hidden>
-      <div class="card-h"><h2 id="dTitle">Seguidor</h2><button id="dClose" class="link">Cerrar</button></div>
+      <div class="card-h"><h2 id="dTitle">Seguidor</h2><button id="dClose" class="link">Tancar</button></div>
       <div id="dMsgs"></div>
       <div class="strings" id="dStrings"></div>
-      <h3>Corriente por string, hoy</h3>
+      <h3>Corrent per string, avui</h3>
       <svg id="dChart" class="chart"></svg>
     </section>
   </div>
 
-  <!-- Página 2: comparación -->
+  <!-- Pàgina: strings -->
   <div class="page" data-page="strings" hidden>
     <section class="card">
-      <div class="card-h"><h2>Comparación de strings</h2><span class="hint">Corriente por string frente a la mediana</span></div>
+      <div class="card-h"><h2>Comparació de strings</h2><span class="hint">Potència per string · línia = mediana</span></div>
+      <p class="note">S1 i S2 van en paral·lel a la mateixa entrada (marcats amb ½): l'inversor només en veu la suma i a cadascun se li assigna la meitat.</p>
       <div id="bars" class="bars"></div>
     </section>
   </div>
 
-  <!-- Página 3: avisos -->
-  <div class="page" data-page="avisos" hidden>
+  <!-- Pàgina: seguidors -->
+  <div class="page" data-page="seguidors" hidden>
     <section class="card">
-      <div class="card-h"><h2>Avisos</h2></div>
-      <ul id="alerts" class="alerts"></ul>
+      <div class="card-h"><h2>Producció per seguidor</h2></div>
+      <div class="seg" id="periodSel">
+        <button data-p="day" class="on">Dia</button><button data-p="month">Mes</button><button data-p="year">Any</button>
+      </div>
+      <div class="pnav"><button id="prevP" aria-label="Anterior">‹</button><b id="periodLabel">–</b><button id="nextP" aria-label="Següent">›</button></div>
+      <p class="note" id="trkTotal"></p>
+      <div id="trkBars" class="trks"></div>
+      <p class="note">Energia DC de cada seguidor, calculada amb les lectures cada 10 min. La línia marca la mediana; en taronja o vermell, els que produeixen un 7 % o un 15 % menys.</p>
     </section>
   </div>
 
-  <!-- Página 4: rendimiento -->
-  <div class="page" data-page="rendimiento" hidden>
+  <!-- Pàgina: alarmes -->
+  <div class="page" data-page="alarmes" hidden>
     <section class="card">
-      <div class="card-h"><h2>Rendimiento diario</h2><span class="hint">kWh/kWp por entrada</span></div>
+      <div class="card-h"><h2>Ara mateix</h2><span class="hint">Última lectura</span></div>
+      <ul id="alerts" class="alerts"></ul>
+    </section>
+
+    <section class="card">
+      <div class="card-h"><h2>Registre d'alarmes</h2><button id="newAlertBtn" class="btn">+ Nova alarma</button></div>
+      <form id="alertForm" class="aform" hidden>
+        <label>Títol<input id="fTitle" required maxlength="200" placeholder="Ex.: Panell trencat a la fila 3"></label>
+        <div class="row2">
+          <label>Seguidor<select id="fTracker"><option value="">General</option></select></label>
+          <label>String<select id="fString"><option value="">Tot el seguidor</option></select></label>
+        </div>
+        <label>Gravetat<select id="fSev"><option value="warning">Avís</option><option value="alarm">Alarma</option></select></label>
+        <label>Notes<textarea id="fNotes" rows="3" placeholder="Opcional"></textarea></label>
+        <p id="fErr" class="err"></p>
+        <div class="factions"><button type="button" id="fCancel" class="link">Cancel·lar</button><button type="submit" class="btn">Desar</button></div>
+      </form>
+      <div class="seg seg2" id="regSel"><button data-s="open" class="on">Obertes</button><button data-s="closed">Tancades</button></div>
+      <ul id="register" class="alerts reg"></ul>
+      <p class="note">Les automàtiques es creen soles quan l'anàlisi detecta un problema (una per problema, i es van actualitzant mentre continuï). Les manuals les crees tu. Totes es tanquen a mà.</p>
+    </section>
+  </div>
+
+  <!-- Pàgina: rendiment -->
+  <div class="page" data-page="rendiment" hidden>
+    <section class="card">
+      <div class="card-h"><h2>Rendiment diari</h2><span class="hint">kWh/kWp per entrada</span></div>
       <div class="scroll"><table id="daily" class="daily"></table></div>
     </section>
   </div>
 
-  <p class="foot">Actualiza cada minuto · <a href="#" id="refresh">Actualizar ahora</a></p>
+  <p class="foot">Les dades s'actualitzen soles cada minut.</p>
 </main>
 
-<nav class="tabbar" aria-label="Secciones">
-  <a href="#plano" data-tab="plano">
+<nav class="tabbar" aria-label="Seccions">
+  <a href="#planol" data-tab="planol">
     <svg viewBox="0 0 24 24"><rect x="3" y="5" width="7" height="6" rx="1"/><rect x="14" y="5" width="7" height="6" rx="1"/><rect x="3" y="14" width="7" height="6" rx="1"/><rect x="14" y="14" width="7" height="6" rx="1"/></svg>
-    <span>Plano</span></a>
+    <span>Plànol</span></a>
   <a href="#strings" data-tab="strings">
     <svg viewBox="0 0 24 24"><path d="M4 6h14M4 12h10M4 18h16"/></svg>
     <span>Strings</span></a>
-  <a href="#avisos" data-tab="avisos">
+  <a href="#seguidors" data-tab="seguidors">
+    <svg viewBox="0 0 24 24"><path d="M12 3v18M5 21h14"/><rect x="4" y="5" width="16" height="7" rx="1" transform="rotate(-12 12 8.5)"/></svg>
+    <span>Seguidors</span></a>
+  <a href="#alarmes" data-tab="alarmes">
     <svg viewBox="0 0 24 24"><path d="M12 3 2.5 20h19z"/><path d="M12 10v4M12 17v.5"/></svg>
-    <span>Avisos</span><b id="alertCount" class="count" hidden></b></a>
-  <a href="#rendimiento" data-tab="rendimiento">
+    <span>Alarmes</span><b id="alertCount" class="count" hidden></b></a>
+  <a href="#rendiment" data-tab="rendiment">
     <svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
-    <span>Rendimiento</span></a>
+    <span>Rendiment</span></a>
 </nav>
 <script src="/static/app.js"></script>
 </body>
