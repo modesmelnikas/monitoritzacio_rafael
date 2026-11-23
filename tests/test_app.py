@@ -367,3 +367,14 @@ def test_no_new_alerts_outside_alarm_hours():
             sync_alerts(db, late, bad)
         db.commit()
         assert db.scalar(select(func.count(Alert.id))) == before
+
+
+def test_energy_month_and_year():
+    from app.main import app
+    from app.poller import save_daily
+    save_daily({"2029-03-01": 100.0, "2029-03-15": 50.5, "2029-07-02": 300.0})
+    with TestClient(app) as c:
+        m = c.get("/api/energy?period=month&date=2029-03-10").json()
+        assert len(m["bars"]) == 31 and m["bars"][0]["kwh"] == 100.0 and m["total_kwh"] == 150.5
+        y = c.get("/api/energy?period=year&date=2029").json()
+        assert len(y["bars"]) == 12 and y["bars"][2]["kwh"] == 150.5 and y["bars"][6]["kwh"] == 300.0

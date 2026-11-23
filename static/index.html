@@ -39,10 +39,11 @@
     </section>
 
     <section class="card">
-      <div class="card-h"><h2>Producció diària</h2><span class="hint" id="prodHint">Potència de tots els seguidors</span></div>
-      <div class="pnav"><button id="prevD" aria-label="Dia anterior">‹</button><b id="dayLabel">–</b><button id="nextD" aria-label="Dia següent">›</button></div>
+      <div class="card-h"><h2>Producció</h2><span class="hint" id="prodHint">Potència de tots els seguidors</span></div>
+      <div class="seg" id="prodSel"><button data-p="day" class="on">Dia</button><button data-p="month">Mes</button><button data-p="year">Any</button></div>
+      <div class="pnav"><button id="prevD" aria-label="Anterior">‹</button><b id="dayLabel">–</b><button id="nextD" aria-label="Següent">›</button></div>
       <svg id="prodChart" class="chart prod" role="img" aria-label="Corba de potència del dia"></svg>
-      <div class="legend"><span><i class="dot pv"></i>Potència AC (inversor)</span></div>
+      <div class="legend" id="prodLegend"><span><i class="dot pv"></i>Potència AC (inversor)</span></div>
     </section>
 
     <section class="card" id="detail" hidden>

@@ -338,9 +338,11 @@ function drawChart(svg, series, ids, nOf = {}, labels = {}) {
   });
 }
 
-const dayState = { date: new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Madrid" }) };
+const dayState = { period: "day", date: new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Madrid" }) };
 
 async function renderProduction() {
+  if (dayState.period !== "day") return renderEnergyBars();
+  $("prodLegend").innerHTML = '<span><i class="dot pv"></i>Potència AC (inversor)</span>';
   const svg = $("prodChart");
   try {
     const d = await getJSON(`/api/power?date=${dayState.date}`);
@@ -423,9 +425,60 @@ function addScrubber(svg, pts, X, Y, g) {
   svg.onpointerleave = (ev) => { if (ev.pointerType === "mouse") grp.setAttribute("visibility", "hidden"); };
 }
 
+// Producció del parc per mes (barres per dia) o per any (barres per mes)
+async function renderEnergyBars() {
+  const svg = $("prodChart");
+  const per = dayState.period;
+  try {
+    const d = await getJSON(`/api/energy?period=${per}&date=${dayState.date}`);
+    const ref = new Date((per === "month" ? d.key + "-15" : d.key + "-06-15") + "T12:00");
+    const lbl = per === "month" ? ref.toLocaleDateString(LOC, { month: "long", year: "numeric" }) : d.key;
+    $("dayLabel").textContent = lbl.charAt(0).toUpperCase() + lbl.slice(1);
+    $("nextD").disabled = d.key >= d.current;
+    $("prodHint").textContent = `${Math.round(d.total_kwh).toLocaleString(LOC)} kWh ${per === "month" ? "al mes" : "a l'any"}`;
+    $("prodLegend").innerHTML = `<span><i class="dot pv"></i>kWh per ${per === "month" ? "dia" : "mes"}</span>`;
+    svg.innerHTML = "";
+    const W = Math.max(320, svg.clientWidth || 600), H = 200, L = 38, B = 20, T = 14, R = 8;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    const n = d.bars.length, vals = d.bars.map((b) => b.kwh || 0);
+    const max = Math.max(10, ...vals) * 1.15;
+    const step = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000].find((v) => max / v <= 5) || 100000;
+    const Y = (v) => T + (1 - v / max) * (H - T - B);
+    for (let v = 0; v <= max; v += step) {
+      el("line", { x1: L, x2: W - R, y1: Y(v), y2: Y(v), class: "grid" }, svg);
+      const tx = el("text", { x: L - 4, y: Y(v) + 3, class: "axis", "text-anchor": "end" }, svg); tx.textContent = v.toLocaleString(LOC);
+    }
+    const kw = el("text", { x: 2, y: 9, class: "axis" }, svg); kw.textContent = "kWh";
+    const bw = (W - L - R) / n;
+    const months = ["G", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
+    const best = Math.max(...vals);
+    d.bars.forEach((b, i) => {
+      const x = L + i * bw;
+      if (b.kwh != null) {
+        el("rect", { x: x + bw * 0.15, y: Y(b.kwh), width: bw * 0.7, height: Y(0) - Y(b.kwh), rx: 2, class: "ebar" }, svg);
+        if (per === "year" || b.kwh === best) {
+          const tv = el("text", { x: x + bw / 2, y: Y(b.kwh) - 3, class: "val" }, svg);
+          tv.textContent = b.kwh >= 1000 ? (b.kwh / 1000).toLocaleString(LOC, { maximumFractionDigits: 1 }) + "k" : Math.round(b.kwh).toLocaleString(LOC);
+        }
+      }
+      const show = per === "year" || (i + 1) % (W < 480 ? 5 : 2) === 1 || W >= 760;
+      if (show) {
+        const tx = el("text", { x: x + bw / 2, y: H - 5, class: "axis", "text-anchor": "middle" }, svg);
+        tx.textContent = per === "year" ? months[i] : String(i + 1);
+      }
+    });
+    if (!vals.some((v) => v > 0)) {
+      const tx = el("text", { x: W / 2, y: H / 2, class: "axis", "text-anchor": "middle" }, svg);
+      tx.textContent = "Sense dades en aquest període";
+    }
+  } catch (e) { console.error(e); }
+}
+
 function shiftDay(dir) {
   const d = new Date(dayState.date + "T12:00:00");
-  d.setDate(d.getDate() + dir);
+  if (dayState.period === "month") d.setMonth(d.getMonth() + dir, 1);
+  else if (dayState.period === "year") d.setFullYear(d.getFullYear() + dir, 0, 1);
+  else d.setDate(d.getDate() + dir);
   dayState.date = d.toLocaleDateString("sv-SE");
   renderProduction();
 }
@@ -514,6 +567,11 @@ document.querySelectorAll("#periodSel button").forEach((b) => b.addEventListener
 $("prevP").addEventListener("click", () => shiftDate(-1));
 $("nextP").addEventListener("click", () => shiftDate(1));
 
+document.querySelectorAll("#prodSel button").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll("#prodSel button").forEach((x) => x.classList.toggle("on", x === b));
+  dayState.period = b.dataset.p;
+  renderProduction();
+}));
 $("prevD").addEventListener("click", () => shiftDay(-1));
 $("nextD").addEventListener("click", () => shiftDay(1));
 

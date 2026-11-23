@@ -373,6 +373,31 @@ def production(days: int = Query(30, gt=0, le=400)):
     return {"days": [{"day": r.day, "kwh": round(r.kwh, 1)} for r in rows]}
 
 
+@app.get("/api/energy")
+def energy_period(period: str = Query("month", pattern="^(month|year)$"), date: str | None = None):
+    """Producció del parc: kWh per dia d'un mes ("2026-11") o per mes d'un any ("2026")."""
+    today = datetime.now(timezone.utc).astimezone(LOCAL_TZ).date()
+    key = (date or today.isoformat())[: 7 if period == "month" else 4]
+    with SessionLocal() as db:
+        rows = db.scalars(select(DailyEnergy).where(DailyEnergy.day.like(f"{key}%"))
+                          .order_by(DailyEnergy.day)).all()
+    if period == "month":
+        y, m = int(key[:4]), int(key[5:7])
+        ndays = ((datetime(y + (m == 12), m % 12 + 1, 1) - datetime(y, m, 1)).days)
+        by = {r.day: r.kwh for r in rows}
+        bars = [{"key": f"{key}-{d:02d}", "kwh": round(by[f"{key}-{d:02d}"], 1)
+                 if f"{key}-{d:02d}" in by else None} for d in range(1, ndays + 1)]
+    else:
+        sums: dict[str, float] = {}
+        for r in rows:
+            sums[r.day[:7]] = sums.get(r.day[:7], 0) + r.kwh
+        bars = [{"key": f"{key}-{m:02d}", "kwh": round(sums[f"{key}-{m:02d}"], 1)
+                 if f"{key}-{m:02d}" in sums else None} for m in range(1, 13)]
+    total = sum(b["kwh"] or 0 for b in bars)
+    return {"period": period, "key": key, "bars": bars, "total_kwh": round(total, 1),
+            "current": today.isoformat()[: 7 if period == "month" else 4]}
+
+
 @app.get("/api/trackers/energy")
 def trackers_energy(period: str = Query("day", pattern="^(day|month|year)$"),
                     date: str | None = None):
