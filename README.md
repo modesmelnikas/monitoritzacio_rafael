@@ -116,6 +116,15 @@ y un string del paralelo del 124 cortado, para ver las alarmas). Sin
   seguidas necesarias, seguidor (o todos) y gravedad. También se pueden crear
   alarmas a mano.
 
+### Avisos al móvil (Telegram)
+
+Cuando una alarma automática se confirma, el lector manda un mensaje por Telegram.
+1. En Telegram, habla con **@BotFather**, `/newbot`, y copia el token.
+2. Escribe cualquier cosa a tu bot y abre
+   `https://api.telegram.org/bot<TOKEN>/getUpdates`: el número `chat.id` es tu id.
+3. En GitHub → Settings → Secrets → Actions, añade `TELEGRAM_BOT_TOKEN` y
+   `TELEGRAM_CHAT_ID` (varios ids separados por comas para avisar a más personas).
+
 ## API
 
 | Ruta | Qué da |

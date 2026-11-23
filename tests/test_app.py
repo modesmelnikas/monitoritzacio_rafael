@@ -270,3 +270,21 @@ def test_rules_crud_and_evaluation():
     assert evaluate(rule("ac_low", 5), res, {"ac_power_w": 3000}, None, now, plant)
     old = {"dataTimestamp": str((now.timestamp() - 3600) * 1000)}
     assert evaluate(rule("stale_data", 30), res, {}, old, now, plant)
+
+
+def test_telegram_notify(monkeypatch):
+    import httpx
+    from app import notify
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    assert notify.send("x") == 0
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:abc")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "11, 22")
+    calls = []
+
+    def handler(req):
+        calls.append((str(req.url), req.content))
+        return httpx.Response(200, json={"ok": True})
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    assert notify.send(notify.alert_text("PS", "alarm", "114-S3 baix"), client) == 2
+    assert calls[0][0] == "https://api.telegram.org/bot123:abc/sendMessage"
+    assert "114-S3 baix" in calls[0][1].decode()

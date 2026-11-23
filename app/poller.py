@@ -90,6 +90,7 @@ def sync_alerts(db, now: datetime, result: dict, data: dict | None = None,
     plant = get_plant()
     data = data or {}
     seen: set[int] = set()
+    opened: list[Alert] = []
     for rule in db.scalars(select(AlertRule).where(AlertRule.enabled.is_(True))):
         for hit in evaluate(rule, result, data, raw, now, plant):
             kind = f"rule:{rule.id}"
@@ -106,6 +107,7 @@ def sync_alerts(db, now: datetime, result: dict, data: dict | None = None,
                 a.last_seen, a.count, a.title, a.severity = now, a.count + 1, title, rule.severity
                 if a.state == "pending" and a.count >= need:
                     a.state = "open"
+                    opened.append(a)
             else:
                 a = Alert(created=now, last_seen=now, source="auto", kind=kind,
                           severity=rule.severity, tracker=hit["tracker"],
@@ -113,10 +115,16 @@ def sync_alerts(db, now: datetime, result: dict, data: dict | None = None,
                           state="open" if need <= 1 else "pending")
                 db.add(a)
                 db.flush()
+                if a.state == "open":
+                    opened.append(a)
             seen.add(a.id)
     for a in db.scalars(select(Alert).where(Alert.state == "pending")):
         if a.id not in seen:
             db.delete(a)
+    if opened:
+        from . import notify
+        for a in opened:
+            notify.send(notify.alert_text(plant.name, a.severity, a.title))
 
 
 def fetch_reading(now: datetime | None = None) -> tuple[datetime, dict, dict | None, str]:
