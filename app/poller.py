@@ -21,8 +21,12 @@ NIGHT_MAX_A = 0.1     # corrents residuals de capvespre (p. ex. 0,03 A)
 
 
 def _is_night(data: dict) -> bool:
+    # l'inversor pot donar corrents residuals de nit (0,1-0,3 A) amb 20 W d'AC:
+    # si sabem la potència AC, mana ella
+    if data.get("ac_power_w") is not None:
+        return data["ac_power_w"] < NIGHT_AC_W
     currents = [s["current_a"] or 0 for s in data["strings"]]
-    return max(currents, default=0) < NIGHT_MAX_A and (data["ac_power_w"] or 0) < NIGHT_AC_W
+    return max(currents, default=0) < NIGHT_MAX_A
 
 
 def save_daily(values: dict[str, float], now: datetime | None = None) -> None:
