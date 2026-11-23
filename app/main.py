@@ -66,6 +66,16 @@ def _basic_user(request: Request, db):
 
 
 @app.middleware("http")
+async def no_stale_assets(request: Request, call_next):
+    """El mòbil no ha de quedar-se amb CSS/JS antics després d'un desplegament."""
+    resp = await call_next(request)
+    p = request.url.path
+    if p == "/" or p == "/login" or p.startswith("/static/"):
+        resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
+@app.middleware("http")
 async def require_login(request: Request, call_next):
     path = request.url.path
     request.state.user = None

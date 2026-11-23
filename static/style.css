@@ -55,7 +55,7 @@ main { max-width: 960px; margin: 0 auto; padding: 12px 16px calc(84px + env(safe
 .tracker .kw { fill: var(--muted); font-weight: 500; }
 .st-ok { stroke: var(--ok); } .st-warning { stroke: var(--warning); } .st-alarm { stroke: var(--alarm); }
 .st-idle, .st-nodata { stroke: var(--idle); }
-.legend { display: flex; flex-wrap: wrap; gap: 12px; color: var(--muted); font-size: 12px; margin-top: 8px; }
+.legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; color: var(--muted); font-size: 12px; margin-top: 8px; }
 .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; background: var(--idle); }
 .dot.ok { background: var(--ok); } .dot.warning { background: var(--warning); } .dot.alarm { background: var(--alarm); }
 .strings { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 8px; }

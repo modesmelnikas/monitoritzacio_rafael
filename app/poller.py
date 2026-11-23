@@ -16,8 +16,8 @@ from .solis import fetch_inverter_detail, fetch_inverter_month, parse_detail, pa
 log = logging.getLogger("poller")
 
 
-NIGHT_AC_W = 300      # per sota d'això (0,3 % de 100 kW) es considera nit
-NIGHT_MAX_A = 0.5     # corrents residuals de capvespre (p. ex. 0,03 A)
+NIGHT_AC_W = 50       # per sota d'això es considera nit (soroll de l'inversor apagat)
+NIGHT_MAX_A = 0.1     # corrents residuals de capvespre (p. ex. 0,03 A)
 
 
 def _is_night(data: dict) -> bool:
