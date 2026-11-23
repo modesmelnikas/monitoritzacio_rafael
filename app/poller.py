@@ -16,9 +16,13 @@ from .solis import fetch_inverter_detail, fetch_inverter_month, parse_detail, pa
 log = logging.getLogger("poller")
 
 
+NIGHT_AC_W = 300      # per sota d'això (0,3 % de 100 kW) es considera nit
+NIGHT_MAX_A = 0.5     # corrents residuals de capvespre (p. ex. 0,03 A)
+
+
 def _is_night(data: dict) -> bool:
     currents = [s["current_a"] or 0 for s in data["strings"]]
-    return max(currents, default=0) < 0.05 and not (data["ac_power_w"] or 0) > 0
+    return max(currents, default=0) < NIGHT_MAX_A and (data["ac_power_w"] or 0) < NIGHT_AC_W
 
 
 def save_daily(values: dict[str, float], now: datetime | None = None) -> None:
@@ -89,6 +93,12 @@ def sync_alerts(db, now: datetime, result: dict, data: dict | None = None,
     from .rules import evaluate
     plant = get_plant()
     data = data or {}
+    hours = plant.analysis.get("alarm_hours")
+    if hours:
+        h = now.astimezone(LOCAL_TZ)
+        h = h.hour + h.minute / 60
+        if not (float(hours[0]) <= h < float(hours[1])):
+            return   # fora de l'horari d'alarmes: no s'obre ni es confirma res
     seen: set[int] = set()
     opened: list[Alert] = []
     for rule in db.scalars(select(AlertRule).where(AlertRule.enabled.is_(True))):

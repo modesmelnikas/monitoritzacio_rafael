@@ -52,6 +52,9 @@ solis:
   voltage_by: input
 
 analysis:
+  # Les alarmes automàtiques només s'avaluen dins d'aquest horari (hora de Madrid),
+  # per evitar falses alarmes amb el sol baix. Fora d'hora no se n'obren de noves.
+  alarm_hours: [9, 16]
   # Por debajo de esta corriente media no se evalúa (noche, amanecer).
   min_median_current_a: 1.0
   # Desviación de la corriente POR STRING respecto a la mediana.
