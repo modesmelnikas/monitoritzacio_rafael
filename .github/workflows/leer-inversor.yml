@@ -1,0 +1,38 @@
+# Lee el inversor Solis cada 10 minutos de día y guarda los datos en la
+# base de datos (Neon). Es gratis en un repositorio público.
+#
+# Secrets necesarios (Settings > Secrets and variables > Actions):
+#   DATABASE_URL, SOLIS_KEY_ID, SOLIS_KEY_SECRET, SOLIS_INVERTER_SN
+name: Leer inversor
+
+on:
+  schedule:
+    # UTC. De 5:00 a 19:50 UTC = de 6:00 a 20:50 en invierno (7:00-21:50 en verano).
+    # GitHub puede retrasar unos minutos las ejecuciones programadas.
+    - cron: "*/10 5-19 * * *"
+  workflow_dispatch: {}   # botón "Run workflow" para lanzarlo a mano
+
+concurrency:
+  group: leer-inversor
+  cancel-in-progress: false
+
+jobs:
+  leer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Leer SolisCloud y guardar
+        run: python -m app.poller
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SOLIS_KEY_ID: ${{ secrets.SOLIS_KEY_ID }}
+          SOLIS_KEY_SECRET: ${{ secrets.SOLIS_KEY_SECRET }}
+          SOLIS_INVERTER_SN: ${{ secrets.SOLIS_INVERTER_SN }}
+          SOLIS_INVERTER_ID: ${{ secrets.SOLIS_INVERTER_ID }}
+          SOLIS_API_URL: https://www.soliscloud.com:13333

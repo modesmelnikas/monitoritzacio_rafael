@@ -1,0 +1,61 @@
+# Configuración de la planta de Rafael
+# -------------------------------------------------------------
+# 10 seguidores a dos ejes, 30 paneles de 210 W por seguidor,
+# en 3 strings de 10 paneles (S1, S2, S3: 2,1 kWp cada uno, 6,3 kWp por seguidor).
+#
+# Inversor Solis 100 kW: 10 MPPT y 20 entradas PV. Cableado (confirmado por Modes):
+#   - cada seguidor va a una MPPT, por orden (114 = MPPT 1 ... 126 = MPPT 10)
+#   - entrada impar: S1 y S2 en paralelo  -> su corriente es la de 2 strings
+#   - entrada par:   S3 solo
+#   p. ej. MPPT 1: PV1 = S114-S1 // S114-S2, PV2 = S114-S3
+#
+# El inversor no puede separar S1 de S2: se ve su suma. Para comparar, la app
+# divide la corriente de cada entrada por el número de strings que lleva.
+#
+# x, y: posición en el plano (unidades libres, el dashboard escala solo).
+# Los 10 seguidores están en una sola fila (10 x 1), en este orden.
+
+plant:
+  name: "Instalación FV Rafael"
+  panel_wp: 210
+  panels_per_string: 10
+
+trackers:
+  - { id: "114", mppt: 1, x: 0, y: 0,
+      inputs: [{ pv: 1, strings: [S1, S2] }, { pv: 2, strings: [S3] }] }
+  - { id: "117", mppt: 2, x: 1, y: 0,
+      inputs: [{ pv: 3, strings: [S1, S2] }, { pv: 4, strings: [S3] }] }
+  - { id: "119", mppt: 3, x: 2, y: 0,
+      inputs: [{ pv: 5, strings: [S1, S2] }, { pv: 6, strings: [S3] }] }
+  - { id: "120", mppt: 4, x: 3, y: 0,
+      inputs: [{ pv: 7, strings: [S1, S2] }, { pv: 8, strings: [S3] }] }
+  - { id: "121", mppt: 5, x: 4, y: 0,
+      inputs: [{ pv: 9, strings: [S1, S2] }, { pv: 10, strings: [S3] }] }
+  - { id: "122", mppt: 6, x: 5, y: 0,
+      inputs: [{ pv: 11, strings: [S1, S2] }, { pv: 12, strings: [S3] }] }
+  - { id: "123", mppt: 7, x: 6, y: 0,
+      inputs: [{ pv: 13, strings: [S1, S2] }, { pv: 14, strings: [S3] }] }
+  - { id: "124", mppt: 8, x: 7, y: 0,
+      inputs: [{ pv: 15, strings: [S1, S2] }, { pv: 16, strings: [S3] }] }
+  - { id: "125", mppt: 9, x: 8, y: 0,
+      inputs: [{ pv: 17, strings: [S1, S2] }, { pv: 18, strings: [S3] }] }
+  - { id: "126", mppt: 10, x: 9, y: 0,
+      inputs: [{ pv: 19, strings: [S1, S2] }, { pv: 20, strings: [S3] }] }
+
+solis:
+  # Cómo reparte SolisCloud las tensiones en inverterDetail:
+  #   mppt  -> uPv1..uPv10 es la tensión de cada MPPT (sus strings la comparten)
+  #   input -> uPvN es la tensión de cada entrada PV (1..20)
+  # SUPOSICIÓN: "mppt". Se confirma con la primera lectura real (/api/raw).
+  voltage_by: mppt
+
+analysis:
+  # Por debajo de esta corriente media no se evalúa (noche, amanecer).
+  min_median_current_a: 1.0
+  # Desviación de la corriente POR STRING respecto a la mediana.
+  # Ojo: en una entrada con 2 strings en paralelo, si uno se corta la
+  # corriente por string baja un 50 %; si uno rinde un 20 % menos, baja un 10 %.
+  warning_pct: 10
+  alarm_pct: 25
+  # Desviación de tensión de MPPT respecto a la mediana (panel en bypass, etc.).
+  voltage_warning_pct: 5
