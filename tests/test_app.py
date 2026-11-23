@@ -338,7 +338,7 @@ def test_backfill_day_fills_gaps(monkeypatch):
     t0 = datetime(2030, 6, 1, 10, 0, tzinfo=ZoneInfo("Europe/Madrid"))
     pts = []
     for k in range(6):
-        p = dict(REAL)
+        p = dict(REAL, pac=6.5)  # el fixture només té 6 entrades (~6,5 kW DC)
         p["dataTimestamp"] = str(int((t0 + timedelta(minutes=5 * k)).timestamp() * 1000))
         pts.append(p)
     night = dict(REAL, pac=0, dataTimestamp=str(int((t0 - timedelta(hours=5)).timestamp() * 1000)))
