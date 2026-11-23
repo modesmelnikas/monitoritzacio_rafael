@@ -370,9 +370,40 @@ async function renderProduction() {
     // punt i valor màxim
     const mx = pts.reduce((a, b) => (b.v > a.v ? b : a));
     el("circle", { cx: X(mx.t), cy: Y(mx.v), r: 3, class: "pv-dot" }, svg);
-    const tm = el("text", { x: X(mx.t), y: Y(mx.v) - 6, class: "val" }, svg);
+    const tm = el("text", { x: X(mx.t), y: Y(mx.v) - 6, class: "val maxlbl" }, svg);
     tm.textContent = `${mx.v.toFixed(1)} kW`;
+    addScrubber(svg, pts, X, Y, { T, B, H, L, R, W });
   } catch (e) { console.error(e); }
+}
+
+// Tocar o arrossegar sobre la corba: hora i potència del punt més proper
+function addScrubber(svg, pts, X, Y, g) {
+  const grp = el("g", { class: "scrub", visibility: "hidden" }, svg);
+  const vl = el("line", { y1: g.T, y2: g.H - g.B, class: "scrub-line" }, grp);
+  const dot = el("circle", { r: 4.5, class: "scrub-dot" }, grp);
+  const box = el("rect", { rx: 6, height: 34, width: 82, class: "scrub-box" }, grp);
+  const t1 = el("text", { class: "scrub-t" }, grp);
+  const t2 = el("text", { class: "scrub-v" }, grp);
+  const fmt = (t) => new Date(t).toLocaleTimeString(LOC, { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Madrid" });
+  const show = (ev) => {
+    const r = svg.getBoundingClientRect();
+    const x = (ev.clientX - r.left) * (g.W / r.width);
+    let best = pts[0];
+    for (const p of pts) if (Math.abs(X(p.t) - x) < Math.abs(X(best.t) - x)) best = p;
+    const px = X(best.t), py = Y(best.v);
+    vl.setAttribute("x1", px); vl.setAttribute("x2", px);
+    dot.setAttribute("cx", px); dot.setAttribute("cy", py);
+    const bx = Math.min(Math.max(px - 41, g.L), g.W - g.R - 82);
+    const by = py < g.T + 46 ? py + 10 : g.T;          // si el punt és a dalt, la caixa va a sota
+    box.setAttribute("x", bx); box.setAttribute("y", by);
+    t1.setAttribute("x", bx + 41); t1.setAttribute("y", by + 14); t1.textContent = fmt(best.t);
+    t2.setAttribute("x", bx + 41); t2.setAttribute("y", by + 28); t2.textContent = `${best.v.toFixed(1)} kW`;
+    grp.setAttribute("visibility", "visible");
+    svg.classList.add("scrubbing");
+  };
+  svg.onpointerdown = (ev) => { svg.setPointerCapture?.(ev.pointerId); show(ev); };
+  svg.onpointermove = (ev) => { if (ev.pointerType === "mouse" || ev.buttons) show(ev); };
+  svg.onpointerleave = (ev) => { if (ev.pointerType === "mouse") grp.setAttribute("visibility", "hidden"); };
 }
 
 function shiftDay(dir) {
