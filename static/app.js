@@ -84,7 +84,7 @@ function renderBars(s) {
     const medPct = med ? (med / max) * 100 : null;
     const dev = x.deviation_pct == null ? "" : (x.deviation_pct > 0 ? "+" : "") + x.deviation_pct.toFixed(0) + "%";
     row.innerHTML = `<span>${esc(x.tracker)} ${esc(x.label)}</span><span class="track"><span class="fill" style="width:${pct}%"></span>${medPct ? `<span class="med" style="left:${medPct}%"></span>` : ""}</span><span class="val">${fmt(x.current_per_string_a, 1, "A")} ${dev}</span>`;
-    row.addEventListener("click", () => selectTracker(x.tracker));
+    row.addEventListener("click", () => openTracker(x.tracker));
     box.appendChild(row);
   }
 }
@@ -93,6 +93,10 @@ function renderAlerts(s) {
   const ul = $("alerts");
   ul.innerHTML = "";
   const items = s.trackers.filter((t) => t.messages.length).flatMap((t) => t.messages.map((m) => ({ t, m })));
+  const cnt = $("alertCount");
+  cnt.hidden = !items.length;
+  cnt.textContent = items.length;
+  cnt.className = "count" + (s.status === "warning" ? " warning" : "");
   if (!items.length) {
     ul.innerHTML = `<li>${s.active ? "Ningún aviso. Todos los strings producen parecido." : "Sin radiación suficiente para comparar."}</li>`;
     return;
@@ -101,7 +105,7 @@ function renderAlerts(s) {
     const li = document.createElement("li");
     li.className = t.status;
     li.innerHTML = `<b>Seguidor ${esc(t.id)}</b> · ${esc(m)}`;
-    li.addEventListener("click", () => selectTracker(t.id));
+    li.addEventListener("click", () => openTracker(t.id));
     ul.appendChild(li);
   }
 }
@@ -122,6 +126,13 @@ async function selectTracker(id, scroll = true) {
       <div class="row"><span>P</span><span>${fmtW(x.power_w)}</span></div>
       <div class="row"><span>Δ</span><span>${x.deviation_pct == null ? "–" : x.deviation_pct.toFixed(1) + " %"}</span></div>
     </div>`).join("");
+  const g = document.querySelector(`#plan .tracker[aria-label="Seguidor ${CSS.escape(id)}"]`);
+  const wrap = document.querySelector(".plan-wrap");
+  if (g && wrap) {
+    const gr = g.getBoundingClientRect(), wr = wrap.getBoundingClientRect();
+    if (gr.left < wr.left || gr.right > wr.right)
+      wrap.scrollBy({ left: gr.left - wr.left - (wr.width - gr.width) / 2, behavior: scroll ? "smooth" : "auto" });
+  }
   if (scroll) $("detail").scrollIntoView({ behavior: "smooth", block: "nearest" });
   try {
     const h = await getJSON(`/api/history?hours=18&tracker=${encodeURIComponent(id)}`);
@@ -188,11 +199,26 @@ async function load() {
     state = await getJSON("/api/status");
     renderHeader(state); renderPlan(state); renderBars(state); renderAlerts(state);
     if (selected) selectTracker(selected, false);
-    renderDaily();
+    if (location.hash === "#rendimiento") renderDaily();
   } catch (e) {
     $("updated").textContent = "Error de conexión";
     console.error(e);
   }
+}
+
+const PAGES = ["plano", "strings", "avisos", "rendimiento"];
+function showPage(name) {
+  if (!PAGES.includes(name)) name = "plano";
+  document.querySelectorAll(".page").forEach((p) => { p.hidden = p.dataset.page !== name; });
+  document.querySelectorAll(".tabbar a").forEach((a) => a.classList.toggle("active", a.dataset.tab === name));
+  if (name === "rendimiento") renderDaily();
+  window.scrollTo(0, 0);
+}
+window.addEventListener("hashchange", () => showPage(location.hash.slice(1)));
+showPage(location.hash.slice(1));
+function openTracker(id) {
+  if (location.hash !== "#plano") { history.pushState(null, "", "#plano"); showPage("plano"); }
+  selectTracker(id);
 }
 
 $("dClose").addEventListener("click", () => { selected = null; $("detail").hidden = true; renderPlan(state); });

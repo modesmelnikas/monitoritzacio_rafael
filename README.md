@@ -29,7 +29,7 @@ string es un 10 % menos en la entrada).
 1. SolisCloud da la tensión por MPPT (`uPv1..uPv10`) y la corriente por entrada
    (`iPv1..iPv20`). Si da la tensión por entrada, poner `solis.voltage_by: input`.
    Tras la primera lectura real, `/api/raw` enseña la respuesta cruda para comprobarlo.
-2. Posición de los seguidores en el plano: rejilla 5 × 2 provisional (`x`, `y`).
+2. Plano: los 10 seguidores en una fila (10 × 1), en el orden de la lista (`x`, `y`).
 
 ## Qué detecta
 

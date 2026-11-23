@@ -13,7 +13,7 @@
 # divide la corriente de cada entrada por el número de strings que lleva.
 #
 # x, y: posición en el plano (unidades libres, el dashboard escala solo).
-# SUPOSICIÓN: rejilla de 5 x 2 hasta tener el plano real.
+# Los 10 seguidores están en una sola fila (10 x 1), en este orden.
 
 plant:
   name: "Instalación FV Rafael"
@@ -31,15 +31,15 @@ trackers:
       inputs: [{ pv: 7, strings: [S1, S2] }, { pv: 8, strings: [S3] }] }
   - { id: "121", mppt: 5, x: 4, y: 0,
       inputs: [{ pv: 9, strings: [S1, S2] }, { pv: 10, strings: [S3] }] }
-  - { id: "122", mppt: 6, x: 0, y: 1,
+  - { id: "122", mppt: 6, x: 5, y: 0,
       inputs: [{ pv: 11, strings: [S1, S2] }, { pv: 12, strings: [S3] }] }
-  - { id: "123", mppt: 7, x: 1, y: 1,
+  - { id: "123", mppt: 7, x: 6, y: 0,
       inputs: [{ pv: 13, strings: [S1, S2] }, { pv: 14, strings: [S3] }] }
-  - { id: "124", mppt: 8, x: 2, y: 1,
+  - { id: "124", mppt: 8, x: 7, y: 0,
       inputs: [{ pv: 15, strings: [S1, S2] }, { pv: 16, strings: [S3] }] }
-  - { id: "125", mppt: 9, x: 3, y: 1,
+  - { id: "125", mppt: 9, x: 8, y: 0,
       inputs: [{ pv: 17, strings: [S1, S2] }, { pv: 18, strings: [S3] }] }
-  - { id: "126", mppt: 10, x: 4, y: 1,
+  - { id: "126", mppt: 10, x: 9, y: 0,
       inputs: [{ pv: 19, strings: [S1, S2] }, { pv: 20, strings: [S3] }] }
 
 solis:

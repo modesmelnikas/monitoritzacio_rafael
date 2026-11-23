@@ -18,46 +18,74 @@
 </header>
 
 <main>
-  <section class="kpis">
-    <div class="kpi"><span class="k-label">Potencia AC</span><span class="k-val" id="kAc">–</span></div>
-    <div class="kpi"><span class="k-label">Potencia DC</span><span class="k-val" id="kDc">–</span></div>
-    <div class="kpi"><span class="k-label">Corriente media por string</span><span class="k-val" id="kImed">–</span></div>
-    <div class="kpi"><span class="k-label">Hoy</span><span class="k-val" id="kDay">–</span></div>
-  </section>
+  <!-- Página 1: plano -->
+  <div class="page" data-page="plano">
+    <section class="kpis">
+      <div class="kpi"><span class="k-label">Potencia AC</span><span class="k-val" id="kAc">–</span></div>
+      <div class="kpi"><span class="k-label">Potencia DC</span><span class="k-val" id="kDc">–</span></div>
+      <div class="kpi"><span class="k-label">Corriente media por string</span><span class="k-val" id="kImed">–</span></div>
+      <div class="kpi"><span class="k-label">Hoy</span><span class="k-val" id="kDay">–</span></div>
+    </section>
 
-  <section class="card">
-    <div class="card-h"><h2>Plano de seguidores</h2><span class="hint">Toca un seguidor</span></div>
-    <svg id="plan" role="img" aria-label="Plano de los seguidores"></svg>
-    <div class="legend">
-      <span><i class="dot ok"></i>Bien</span><span><i class="dot warning"></i>Aviso</span>
-      <span><i class="dot alarm"></i>Alarma</span><span><i class="dot idle"></i>Sin sol / sin dato</span>
-    </div>
-  </section>
+    <section class="card">
+      <div class="card-h"><h2>Plano de seguidores</h2><span class="hint">Desliza ↔ · toca uno</span></div>
+      <div class="plan-wrap"><svg id="plan" role="img" aria-label="Plano de los seguidores"></svg></div>
+      <div class="legend">
+        <span><i class="dot ok"></i>Bien</span><span><i class="dot warning"></i>Aviso</span>
+        <span><i class="dot alarm"></i>Alarma</span><span><i class="dot idle"></i>Sin sol / sin dato</span>
+      </div>
+    </section>
 
-  <section class="card" id="detail" hidden>
-    <div class="card-h"><h2 id="dTitle">Seguidor</h2><button id="dClose" class="link">Cerrar</button></div>
-    <div id="dMsgs"></div>
-    <div class="strings" id="dStrings"></div>
-    <h3>Corriente por string, hoy</h3>
-    <svg id="dChart" class="chart"></svg>
-  </section>
+    <section class="card" id="detail" hidden>
+      <div class="card-h"><h2 id="dTitle">Seguidor</h2><button id="dClose" class="link">Cerrar</button></div>
+      <div id="dMsgs"></div>
+      <div class="strings" id="dStrings"></div>
+      <h3>Corriente por string, hoy</h3>
+      <svg id="dChart" class="chart"></svg>
+    </section>
+  </div>
 
-  <section class="card">
-    <div class="card-h"><h2>Comparación de strings</h2><span class="hint">Corriente por string frente a la mediana</span></div>
-    <div id="bars" class="bars"></div>
-  </section>
+  <!-- Página 2: comparación -->
+  <div class="page" data-page="strings" hidden>
+    <section class="card">
+      <div class="card-h"><h2>Comparación de strings</h2><span class="hint">Corriente por string frente a la mediana</span></div>
+      <div id="bars" class="bars"></div>
+    </section>
+  </div>
 
-  <section class="card">
-    <div class="card-h"><h2>Avisos</h2></div>
-    <ul id="alerts" class="alerts"></ul>
-  </section>
+  <!-- Página 3: avisos -->
+  <div class="page" data-page="avisos" hidden>
+    <section class="card">
+      <div class="card-h"><h2>Avisos</h2></div>
+      <ul id="alerts" class="alerts"></ul>
+    </section>
+  </div>
 
-  <section class="card">
-    <div class="card-h"><h2>Rendimiento diario</h2><span class="hint">kWh/kWp por entrada</span></div>
-    <div class="scroll"><table id="daily" class="daily"></table></div>
-  </section>
+  <!-- Página 4: rendimiento -->
+  <div class="page" data-page="rendimiento" hidden>
+    <section class="card">
+      <div class="card-h"><h2>Rendimiento diario</h2><span class="hint">kWh/kWp por entrada</span></div>
+      <div class="scroll"><table id="daily" class="daily"></table></div>
+    </section>
+  </div>
+
+  <p class="foot">Actualiza cada minuto · <a href="#" id="refresh">Actualizar ahora</a></p>
 </main>
-<footer>Actualiza cada minuto · <a href="#" id="refresh">Actualizar ahora</a></footer>
+
+<nav class="tabbar" aria-label="Secciones">
+  <a href="#plano" data-tab="plano">
+    <svg viewBox="0 0 24 24"><rect x="3" y="5" width="7" height="6" rx="1"/><rect x="14" y="5" width="7" height="6" rx="1"/><rect x="3" y="14" width="7" height="6" rx="1"/><rect x="14" y="14" width="7" height="6" rx="1"/></svg>
+    <span>Plano</span></a>
+  <a href="#strings" data-tab="strings">
+    <svg viewBox="0 0 24 24"><path d="M4 6h14M4 12h10M4 18h16"/></svg>
+    <span>Strings</span></a>
+  <a href="#avisos" data-tab="avisos">
+    <svg viewBox="0 0 24 24"><path d="M12 3 2.5 20h19z"/><path d="M12 10v4M12 17v.5"/></svg>
+    <span>Avisos</span><b id="alertCount" class="count" hidden></b></a>
+  <a href="#rendimiento" data-tab="rendimiento">
+    <svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
+    <span>Rendimiento</span></a>
+</nav>
 <script src="/static/app.js"></script>
 </body>
 </html>
