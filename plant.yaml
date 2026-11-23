@@ -60,4 +60,5 @@ analysis:
   warning_pct: 10
   alarm_pct: 25
   # Desviación de tensión de MPPT respecto a la mediana (panel en bypass, etc.).
-  voltage_warning_pct: 5
+  # La tensió de cada MPPT varia força segons el punt de treball (ombres, sol baix).
+  voltage_warning_pct: 10

@@ -197,3 +197,33 @@ def test_alert_register_auto_and_manual():
         assert c.post(f"/api/alerts/{aid}/close", json={"notes": "Canviat"}).json()["state"] == "closed"
         assert all(a["id"] != aid for a in c.get("/api/alerts").json()["alerts"])
         assert any(a["id"] == aid for a in c.get("/api/alerts?state=closed").json()["alerts"])
+
+
+def test_auto_alert_needs_three_readings():
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import select
+    from app.db import Alert, SessionLocal, init_db
+    from app.poller import sync_alerts
+    init_db()
+    cur = [7.0] * 20
+    cur[3] = 3.0                       # 117-S3
+    bad = analyze(_readings(cur), plant)
+    good = analyze(_readings([7.0] * 20), plant)
+    t0 = datetime(2030, 1, 1, 12, tzinfo=timezone.utc)
+
+    def state():
+        with SessionLocal() as db:
+            a = db.scalars(select(Alert).where(Alert.string_id == "117-S3",
+                                               Alert.created >= t0)).first()
+            return a and a.state
+
+    with SessionLocal() as db:
+        sync_alerts(db, t0, bad); db.commit()
+    assert state() == "pending"
+    with SessionLocal() as db:
+        sync_alerts(db, t0 + timedelta(minutes=10), good); db.commit()
+    assert state() is None             # ha desaparegut: no es registra
+    for k in range(3):
+        with SessionLocal() as db:
+            sync_alerts(db, t0 + timedelta(minutes=20 + 10 * k), bad); db.commit()
+    assert state() == "open"

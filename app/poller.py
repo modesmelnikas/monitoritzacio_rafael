@@ -77,14 +77,23 @@ def _accumulate_energy(db, now: datetime, readings: list[dict]) -> None:
             db.add(InputDaily(day=day, string_id=r["string_id"], tracker=r["tracker"], kwh=kwh))
 
 
+CONFIRM_READINGS = 3   # lectures seguides abans de donar d'alta una alarma automàtica
+
+
 def sync_alerts(db, now: datetime, result: dict) -> None:
-    """Desa al registre les alarmes de l'anàlisi (una oberta per problema)."""
+    """Desa al registre les alarmes de l'anàlisi (una per problema).
+
+    Una alarma nova queda "pending" fins que es repeteix CONFIRM_READINGS lectures
+    seguides (~30 min); si abans desapareix, s'esborra. Així no s'omple el registre
+    amb ombres passatgeres o el sol baix.
+    """
     from sqlalchemy import select
     if not result.get("active"):
         return
+    seen: set[int] = set()
     for t in result["trackers"]:
         for it in t.get("issues", []):
-            q = select(Alert).where(Alert.state == "open", Alert.source == "auto",
+            q = select(Alert).where(Alert.state.in_(("open", "pending")), Alert.source == "auto",
                                     Alert.kind == it["kind"], Alert.tracker == t["id"])
             q = q.where(Alert.string_id == it["string_id"]) if it["string_id"] else \
                 q.where(Alert.string_id.is_(None))
@@ -93,11 +102,19 @@ def sync_alerts(db, now: datetime, result: dict) -> None:
                 a.last_seen, a.count, a.title = now, a.count + 1, it["text"]
                 if it["severity"] == "alarm":
                     a.severity = "alarm"
+                if a.state == "pending" and a.count >= CONFIRM_READINGS:
+                    a.state = "open"
             else:
-                db.add(Alert(created=now, last_seen=now, source="auto", kind=it["kind"],
-                             severity=it["severity"], tracker=t["id"],
-                             string_id=it["string_id"], title=it["text"], count=1,
-                             state="open"))
+                a = Alert(created=now, last_seen=now, source="auto", kind=it["kind"],
+                          severity=it["severity"], tracker=t["id"], string_id=it["string_id"],
+                          title=it["text"], count=1,
+                          state="open" if CONFIRM_READINGS <= 1 else "pending")
+                db.add(a)
+                db.flush()
+            seen.add(a.id)
+    for a in db.scalars(select(Alert).where(Alert.state == "pending")):
+        if a.id not in seen:
+            db.delete(a)
 
 
 def collect_once(now: datetime | None = None, keep_night: bool = False) -> int | None:
