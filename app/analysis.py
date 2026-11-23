@@ -2,8 +2,9 @@
 
 Todos los strings son iguales (15 x 210 W) y todos los seguidores siguen al
 sol, así que en un mismo instante deberían dar casi la misma corriente. Se
-compara cada string con la mediana de todos. Si una entrada lleva varios
-strings en paralelo, se usa su corriente dividida por el número de strings:
+compara cada entrada con la mediana de las entradas de su mismo tipo (las
+de 2 strings en paralelo entre sí, las de 1 string entre sí), usando la
+corriente dividida por el número de strings:
 
 * corriente muy por debajo de la mediana -> aviso / alarma
 * corriente ~0 cuando los demás producen  -> alarma (fusible, conector, string abierto)
@@ -35,7 +36,17 @@ def analyze(strings: list[dict], plant: Plant) -> dict:
         i = s.get("current_a")
         return None if i is None else i / n_of.get(s["string_id"], 1)
 
-    currents = [per_string(s) for s in strings if s.get("current_a") is not None]
+    # Se compara cada entrada con las de su mismo tipo (las S1+S2 en paralelo
+    # entre sí, las S3 entre sí): en la primera lectura real las S3 daban de
+    # forma sistemática más corriente por string que las S1+S2 (posición en el
+    # seguidor, sombras entre seguidores con el sol bajo).
+    groups: dict[int, list[float]] = {}
+    for s in strings:
+        i = per_string(s)
+        if i is not None:
+            groups.setdefault(n_of.get(s["string_id"], 1), []).append(i)
+    med_group = {n: median(v) for n, v in groups.items() if v}
+    currents = [i for v in groups.values() for i in v]
     med_i = median(currents) if currents else None
     active = med_i is not None and med_i >= float(cfg["min_median_current_a"])
 
@@ -53,7 +64,8 @@ def analyze(strings: list[dict], plant: Plant) -> dict:
         elif not active:
             s.update(deviation_pct=None, status=IDLE, message="Poca radiación")
         else:
-            dev = (i - med_i) / med_i * 100
+            ref = med_group.get(n) or med_i
+            dev = (i - ref) / ref * 100 if ref else 0.0
             s["deviation_pct"] = round(dev, 1)
             if i < 0.1:
                 s.update(status=ALARM, message="Entrada sin corriente (¿fusible, conector?)")
@@ -61,9 +73,9 @@ def analyze(strings: list[dict], plant: Plant) -> dict:
                 s.update(status=ALARM, message=f"Corriente por string {dev:.0f} %: "
                          f"probablemente uno de los {n} strings en paralelo no da corriente")
             elif dev <= -float(cfg["alarm_pct"]):
-                s.update(status=ALARM, message=f"Corriente por string {dev:.0f} % respecto a la media")
+                s.update(status=ALARM, message=f"Corriente por string {dev:.0f} % respecto a las de su tipo")
             elif dev <= -float(cfg["warning_pct"]):
-                s.update(status=WARNING, message=f"Corriente por string {dev:.0f} % respecto a la media")
+                s.update(status=WARNING, message=f"Corriente por string {dev:.0f} % respecto a las de su tipo")
             else:
                 s.update(status=OK, message="")
         out_strings.append(s)
@@ -104,5 +116,6 @@ def analyze(strings: list[dict], plant: Plant) -> dict:
                          "messages": msgs, "strings": ss})
 
     return {"active": active, "median_current_a": med_i, "median_voltage_v": med_v,
+            "median_by_group": {f"{n} string": round(m, 3) for n, m in med_group.items()},
             "status": worst(*[t["status"] for t in trackers]) if trackers else NODATA,
             "trackers": trackers}

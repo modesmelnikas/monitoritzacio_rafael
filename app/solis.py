@@ -19,7 +19,9 @@ import httpx
 
 from .config import Plant, Settings
 
-CONTENT_TYPE = "application/json;charset=UTF-8"
+# El cliente de referencia de SolisCloud firma con "application/json" a secas;
+# con ";charset=UTF-8" el servidor responde "wrong sign".
+CONTENT_TYPE = "application/json"
 DETAIL_PATH = "/v1/api/inverterDetail"
 
 
@@ -87,8 +89,8 @@ def parse_detail(detail: dict, plant: Plant) -> dict:
         v_key = f"uPv{s.mppt}" if plant.voltage_by == "mppt" else f"uPv{s.input}"
         voltage = _num(detail.get(v_key))
         current = _num(detail.get(f"iPv{s.input}"))
-        power = None
-        if voltage is not None and current is not None:
+        power = _num(detail.get(f"pow{s.input}"))
+        if power is None and voltage is not None and current is not None:
             power = voltage * current
         strings.append({"string_id": s.id, "tracker": s.tracker,
                         "voltage_v": voltage, "current_a": current, "power_w": power})

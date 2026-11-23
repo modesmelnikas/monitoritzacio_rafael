@@ -26,9 +26,8 @@ string es un 10 % menos en la entrada).
 
 **Suposiciones a confirmar** (se cambian en `plant.yaml`, sin tocar código):
 
-1. SolisCloud da la tensión por MPPT (`uPv1..uPv10`) y la corriente por entrada
-   (`iPv1..iPv20`). Si da la tensión por entrada, poner `solis.voltage_by: input`.
-   Tras la primera lectura real, `/api/raw` enseña la respuesta cruda para comprobarlo.
+1. Confirmado con la primera lectura real: SolisCloud da tensión, corriente y
+   potencia por entrada (`uPv1..20`, `iPv1..20`, `pow1..20`).
 2. Plano: los 10 seguidores en una fila (10 × 1), en el orden de la lista (`x`, `y`).
 
 ## Qué detecta
@@ -37,7 +36,9 @@ Todos los strings son iguales y todos los seguidores siguen al sol, así que en
 el mismo instante deben dar casi la misma corriente por string. Con radiación suficiente
 (mediana > 1 A):
 
-- **Aviso**: corriente por string un 10 % por debajo de la mediana; **alarma**: un 25 %.
+- Cada entrada se compara con las de **su mismo tipo** (las S1+S2 entre sí, las S3
+  entre sí), porque en la práctica las S3 dan algo más por string que las S1+S2.
+- **Aviso**: corriente por string un 10 % por debajo de la mediana de su tipo; **alarma**: un 25 %.
 - **Alarma**: entrada a 0 A mientras las demás producen (fusible, conector).
 - **Alarma**: entrada en paralelo a la mitad → uno de S1/S2 no da corriente.
 - **Seguidor**: si todos sus strings están bajos a la vez → probable fallo de

@@ -46,8 +46,10 @@ solis:
   # Cómo reparte SolisCloud las tensiones en inverterDetail:
   #   mppt  -> uPv1..uPv10 es la tensión de cada MPPT (sus strings la comparten)
   #   input -> uPvN es la tensión de cada entrada PV (1..20)
-  # SUPOSICIÓN: "mppt". Se confirma con la primera lectura real (/api/raw).
-  voltage_by: mppt
+  # Confirmado con la primera lectura real (23/11/2026, Solis-100K-5G): SolisCloud
+  # da uPv1..uPv20 por entrada (las dos entradas de una MPPT llevan la misma
+  # tensión) y también la potencia por entrada (pow1..pow20).
+  voltage_by: input
 
 analysis:
   # Por debajo de esta corriente media no se evalúa (noche, amanecer).

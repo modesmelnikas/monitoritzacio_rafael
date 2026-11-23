@@ -43,12 +43,13 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Monitorización strings FV", lifespan=lifespan)
+HEALTH_PATHS = {"/healthz", "/health", "/api/health"}  # sin contraseña, para el health check de Render
 
 
 @app.middleware("http")
 async def basic_auth(request: Request, call_next):
     s = get_settings()
-    if s.dashboard_password and request.url.path != "/healthz":
+    if s.dashboard_password and request.url.path not in HEALTH_PATHS:
         ok = False
         auth = request.headers.get("authorization", "")
         if auth.lower().startswith("basic "):
@@ -71,6 +72,8 @@ def _iso(ts: datetime) -> str:
 
 
 @app.get("/healthz")
+@app.get("/api/health")
+@app.get("/health")
 def healthz():
     return {"ok": True}
 

@@ -49,7 +49,7 @@ class Plant:
     panels_per_string: int
     trackers: list[TrackerDef]
     analysis: dict
-    voltage_by: str = "mppt"
+    voltage_by: str = "input"
 
     @property
     def strings(self) -> list[StringDef]:
@@ -92,7 +92,7 @@ def load_plant(path: str | Path | None = None) -> Plant:
     return Plant(name=p.get("name", "Planta FV"), panel_wp=float(p.get("panel_wp", 210)),
                  panels_per_string=int(p.get("panels_per_string", 15)),
                  trackers=trackers, analysis=analysis,
-                 voltage_by=str((raw.get("solis") or {}).get("voltage_by", "mppt")))
+                 voltage_by=str((raw.get("solis") or {}).get("voltage_by", "input")))
 
 
 def _bool(v: str | None) -> bool:
