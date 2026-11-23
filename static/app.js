@@ -17,6 +17,7 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&l
 
 async function getJSON(url) {
   const r = await fetch(url, { cache: "no-store" });
+  if (r.status === 401) { location.href = "/login"; throw new Error("login"); }
   if (!r.ok) throw new Error(url + " " + r.status);
   return r.json();
 }
@@ -444,13 +445,14 @@ async function load() {
   }
 }
 
-const PAGES = ["planol", "strings", "seguidors", "alarmes"];
+const PAGES = ["planol", "strings", "seguidors", "alarmes", "comptes"];
 function showPage(name) {
   if (!PAGES.includes(name)) name = "planol";
   document.querySelectorAll(".page").forEach((p) => { p.hidden = p.dataset.page !== name; });
   document.querySelectorAll(".tabbar a").forEach((a) => a.classList.toggle("active", a.dataset.tab === name));
   if (name === "seguidors") renderTrackers();
   if (name === "alarmes") { renderRegister(); renderRules(); }
+  if (name === "comptes") renderAccounts();
   window.scrollTo(0, 0);
 }
 window.addEventListener("hashchange", () => showPage(location.hash.slice(1)));
@@ -506,5 +508,64 @@ $("alertForm").addEventListener("submit", async (e) => {
   $("alertForm").hidden = true; $("newAlertBtn").hidden = false;
   regState.state = "open"; renderRegister(); updateAlertCount();
 });
+// ---- Comptes ----
+let me = null;
+async function renderAccounts() {
+  me = await getJSON("/api/me");
+  $("meInfo").textContent = me.open ? "No hi ha comptes creats: el tauler és obert." :
+    `Has entrat com a ${me.username}${me.is_admin ? " (administrador)" : ""}.`;
+  $("pwdForm").hidden = !!me.open; $("logoutBtn").hidden = !!me.open;
+  $("usersCard").hidden = !me.is_admin || !!me.open;
+  if (!me.is_admin || me.open) return;
+  const users = await getJSON("/api/users");
+  const ul = $("users"); ul.innerHTML = "";
+  for (const u of users) {
+    const li = document.createElement("li");
+    const self = u.id === me.id;
+    li.innerHTML = `<div class="rl-h"><b>${esc(u.username)}</b>${u.is_admin ? '<span class="utag">admin</span>' : ""}</div>
+      <div class="rl-d">Creat el ${new Date(u.created).toLocaleDateString(LOC)}${self ? " · ets tu" : ""}</div>
+      <div class="rl-f">${self ? "" : `<button class="link" data-a="pwd">Canviar contrasenya</button>
+        <button class="link" data-a="adm">${u.is_admin ? "Treure admin" : "Fer admin"}</button>
+        <button class="link del" data-a="del">Esborrar</button>`}</div>`;
+    li.querySelectorAll("button").forEach((b) => b.addEventListener("click", async () => {
+      let r;
+      if (b.dataset.a === "del") {
+        if (!confirm(`Esborrar el compte ${u.username}?`)) return;
+        r = await fetch(`/api/users/${u.id}`, { method: "DELETE" });
+      } else {
+        let body;
+        if (b.dataset.a === "pwd") {
+          const p = prompt(`Nova contrasenya per a ${u.username} (mínim 6 caràcters):`);
+          if (!p) return;
+          body = { password: p };
+        } else body = { is_admin: !u.is_admin };
+        r = await fetch(`/api/users/${u.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      }
+      if (!r.ok) alert((await r.json().catch(() => ({}))).detail || "No s'ha pogut fer");
+      renderAccounts();
+    }));
+    ul.appendChild(li);
+  }
+}
+$("logoutBtn").addEventListener("click", async () => { await fetch("/api/logout", { method: "POST" }); location.href = "/login"; });
+$("pwdForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const err = $("pErr"); err.textContent = "";
+  if ($("pNew").value !== $("pNew2").value) { err.textContent = "Les contrasenyes no coincideixen"; return; }
+  const r = await fetch(`/api/users/${me.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: $("pNew").value }) });
+  if (!r.ok) { err.textContent = (await r.json().catch(() => ({}))).detail || "Error"; return; }
+  $("pwdForm").reset(); err.textContent = "Contrasenya canviada.";
+});
+$("newUserBtn").addEventListener("click", () => { $("userForm").hidden = false; $("newUserBtn").hidden = true; $("uName").focus(); });
+$("uCancel").addEventListener("click", () => { $("userForm").reset(); $("userForm").hidden = true; $("newUserBtn").hidden = false; });
+$("userForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const r = await fetch("/api/users", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: $("uName").value, password: $("uPwd").value, is_admin: $("uAdmin").checked }) });
+  if (!r.ok) { $("uErr").textContent = (await r.json().catch(() => ({}))).detail || "Error"; return; }
+  $("uErr").textContent = ""; $("userForm").reset(); $("userForm").hidden = true; $("newUserBtn").hidden = false;
+  renderAccounts();
+});
+
 load();
 setInterval(load, 60000);

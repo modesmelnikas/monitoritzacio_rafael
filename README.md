@@ -116,6 +116,27 @@ y un string del paralelo del 124 cortado, para ver las alarmas). Sin
   seguidas necesarias, seguidor (o todos) y gravedad. También se pueden crear
   alarmas a mano.
 
+### Cuentas
+
+La web pide usuario y contraseña (pantalla `/login`). El primer arranque con
+`DASHBOARD_PASSWORD` definido crea la cuenta **admin** con esa contraseña. En la
+pestaña **Comptes**, el administrador crea, borra y cambia contraseñas de otras
+cuentas; cada usuario puede cambiar la suya.
+
+### Lectura cada 10 min sin que Render se duerma
+
+GitHub Actions no garantiza los crons (a veces pasa una hora sin ejecutarse). Por
+eso hay un endpoint `/api/cron?key=CRON_KEY` para un cron externo gratuito:
+1. En Render → Environment, añade `CRON_KEY` (una clave larga inventada),
+   `SOLIS_KEY_ID`, `SOLIS_KEY_SECRET` y `SOLIS_INVERTER_SN`.
+2. En [cron-job.org](https://cron-job.org) crea un cronjob con la URL
+   `https://<tu-web>.onrender.com/api/cron?key=<CRON_KEY>`, cada 10 minutos,
+   de 6:00 a 19:00 (hora de Madrid), y timeout de 60 s o más.
+
+Cada llamada lee el inversor, guarda en Neon y mantiene Render despierto de día.
+GitHub Actions sigue como respaldo; si dos lecturas caen a menos de 4 min, la
+segunda no se guarda.
+
 ### Avisos al móvil (Telegram)
 
 Cuando una alarma automática se confirma, el lector manda un mensaje por Telegram.

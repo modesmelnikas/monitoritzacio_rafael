@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 
 from .analysis import analyze
 from .config import get_plant, get_settings
@@ -153,6 +153,14 @@ def store_reading(now: datetime, data: dict, raw: dict | None, source: str,
         return None
     result = analyze(data["strings"], plant)
     with SessionLocal() as db:
+        if source == "solis" and not keep_night:
+            # dues vies de lectura (cron extern i GitHub Actions): evita duplicats
+            last = db.scalar(select(Snapshot.ts).order_by(Snapshot.ts.desc()).limit(1))
+            if last is not None:
+                last = last if last.tzinfo else last.replace(tzinfo=timezone.utc)
+                if (now - last).total_seconds() < 240:
+                    log.info("Ja hi ha una lectura de fa menys de 4 min: no es guarda")
+                    return None
         _accumulate_energy(db, now, data["strings"])
         if raw is not None:
             # solo se guarda la última respuesta cruda, para no llenar la base de datos

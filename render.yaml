@@ -23,7 +23,19 @@ services:
         value: "false"
       - key: DATABASE_URL       # la misma URL de Neon que el secret de GitHub
         sync: false
-      - key: DASHBOARD_USER
-        value: rafael
-      - key: DASHBOARD_PASSWORD
+      - key: DASHBOARD_PASSWORD # contrasenya inicial del compte "admin"
+        sync: false
+      # Lectura cada 10 min des d'un cron extern (cron-job.org) a /api/cron?key=...
+      # Així el servidor no s'adorm de dia. Calen les mateixes claus de Solis.
+      - key: CRON_KEY
+        sync: false
+      - key: SOLIS_KEY_ID
+        sync: false
+      - key: SOLIS_KEY_SECRET
+        sync: false
+      - key: SOLIS_INVERTER_SN
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
         sync: false

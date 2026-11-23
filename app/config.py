@@ -131,6 +131,10 @@ class Settings:
         )
 
     @property
+    def cookie_secure(self) -> bool:
+        return bool(os.getenv("RENDER"))   # Render serveix per HTTPS
+
+    @property
     def has_solis_credentials(self) -> bool:
         return bool(self.solis_key_id and self.solis_key_secret and
                     (self.solis_inverter_sn or self.solis_inverter_id))
