@@ -189,6 +189,77 @@ def store_reading(now: datetime, data: dict, raw: dict | None, source: str,
     return snap_id
 
 
+def _rebuild_input_daily(db, day: str) -> None:
+    """Recalcula input_daily d'un dia a partir de totes les lectures guardades."""
+    from sqlalchemy import delete
+    start = datetime.fromisoformat(day).replace(tzinfo=LOCAL_TZ).astimezone(timezone.utc)
+    end = start + timedelta(days=1)
+    snaps = list(db.scalars(select(Snapshot).where(Snapshot.ts >= start, Snapshot.ts < end)
+                            .order_by(Snapshot.ts)))
+    totals: dict[str, list] = {}
+    prev_ts, prev_p = None, {}
+    for sn in snaps:
+        ts = sn.ts if sn.ts.tzinfo else sn.ts.replace(tzinfo=timezone.utc)
+        rows = list(db.scalars(select(StringReading).where(StringReading.snapshot_id == sn.id)))
+        cur = {r.string_id: (r.power_w or 0.0, r.tracker) for r in rows}
+        if prev_ts is not None and timedelta(0) < ts - prev_ts <= MAX_GAP:
+            h = (ts - prev_ts).total_seconds() / 3600
+            for sid, (p1, trk) in cur.items():
+                if sid in prev_p:
+                    t = totals.setdefault(sid, [0.0, trk])
+                    t[0] += (prev_p[sid] + p1) / 2 * h / 1000
+        prev_ts, prev_p = ts, {k: v[0] for k, v in cur.items()}
+    db.execute(delete(InputDaily).where(InputDaily.day == day))
+    for sid, (kwh, trk) in totals.items():
+        db.add(InputDaily(day=day, string_id=sid, tracker=trk, kwh=kwh))
+
+
+def backfill_day(day: str) -> int:
+    """Omple els forats d'un dia amb les dades de 5 min de SolisCloud (inverterDay).
+
+    No toca les lectures que ja hi són (deixa 4 min de marge) ni genera alarmes.
+    """
+    from .solis import fetch_inverter_day
+    settings, plant = get_settings(), get_plant()
+    points = fetch_inverter_day(settings, day)
+    log.info("SolisCloud: %d punts el %s", len(points), day)
+    if points:
+        log.info("Camps d'un punt: %s", sorted(points[0].keys()))
+    init_db()
+    added = 0
+    with SessionLocal() as db:
+        have = [t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+                for t in db.scalars(select(Snapshot.ts))]
+        for pt in sorted(points, key=lambda p: float(p.get("dataTimestamp") or 0)):
+            try:
+                ts = datetime.fromtimestamp(float(pt["dataTimestamp"]) / 1000, timezone.utc)
+            except (KeyError, TypeError, ValueError):
+                continue
+            if ts.astimezone(LOCAL_TZ).date().isoformat() != day:
+                continue
+            data = parse_detail(pt, plant)
+            if _is_night(data) or any(abs((ts - h).total_seconds()) < 240 for h in have):
+                continue
+            result = analyze(data["strings"], plant)
+            snap = Snapshot(ts=ts, source="solis", ac_power_w=data["ac_power_w"],
+                            day_energy_kwh=data["day_energy_kwh"])
+            db.add(snap)
+            db.flush()
+            for t in result["trackers"]:
+                for s_ in t["strings"]:
+                    db.add(StringReading(snapshot_id=snap.id, ts=ts, string_id=s_["string_id"],
+                                         tracker=s_["tracker"], voltage_v=s_["voltage_v"],
+                                         current_a=s_["current_a"], power_w=s_["power_w"],
+                                         deviation_pct=s_["deviation_pct"], status=s_["status"]))
+            have.append(ts)
+            added += 1
+        db.flush()
+        _rebuild_input_daily(db, day)
+        db.commit()
+    log.info("Afegides %d lectures del %s", added, day)
+    return added
+
+
 def backfill_simulation(days: float = 2) -> int:
     """En modo simulado, rellena histórico para que el dashboard tenga curvas."""
     from sqlalchemy import func, select
@@ -247,6 +318,10 @@ def run_batch(readings: int = 1, interval_s: float = 300) -> int:
 if __name__ == "__main__":  # python -m app.poller [lecturas] [segundos]  (GitHub Actions)
     import sys
     logging.basicConfig(level=logging.INFO)
+    if len(sys.argv) > 2 and sys.argv[1] == "--dia":   # python -m app.poller --dia 2026-11-23
+        for d in sys.argv[2].split(","):
+            backfill_day(d.strip())
+        sys.exit(0)
     n = int(sys.argv[1]) if len(sys.argv) > 1 else 1
     gap = float(sys.argv[2]) if len(sys.argv) > 2 else 300
     run_batch(n, gap)
