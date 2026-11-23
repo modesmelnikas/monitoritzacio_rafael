@@ -16,7 +16,7 @@
 # Los 10 seguidores están en una sola fila (10 x 1), en este orden.
 
 plant:
-  name: "Instalación FV Rafael"
+  name: "Instal·lació FV Rafael"
   panel_wp: 210
   panels_per_string: 10
 

@@ -40,27 +40,70 @@ def sign_headers(key_id: str, key_secret: str, path: str, body: str,
             "Authorization": f"API {key_id}:{sig}"}
 
 
-def fetch_inverter_detail(settings: Settings, client: httpx.Client | None = None) -> dict:
+MONTH_PATH = "/v1/api/inverterMonth"
+
+
+def _post(settings: Settings, path: str, payload: dict,
+          client: httpx.Client | None = None):
+    body = json.dumps(payload, separators=(",", ":"))
+    headers = sign_headers(settings.solis_key_id, settings.solis_key_secret, path, body)
+    own = client is None
+    client = client or httpx.Client(timeout=30)
+    try:
+        r = client.post(settings.solis_api_url + path, content=body, headers=headers)
+    finally:
+        if own:
+            client.close()
+    if r.status_code != 200:
+        hint = ""
+        if "wrong sign" in r.text:
+            hint = " (revisa SOLIS_KEY_ID y SOLIS_KEY_SECRET: no intercambiados ni con espacios)"
+        raise SolisError(f"HTTP {r.status_code}: {r.text[:300]}{hint}")
+    data = r.json()
+    if not data.get("success") or str(data.get("code")) != "0":
+        raise SolisError(f"SolisCloud respondió {data.get('code')}: {data.get('msg')}")
+    return data.get("data")
+
+
+def _inverter_ref(settings: Settings) -> dict:
     payload = {}
     if settings.solis_inverter_id:
         payload["id"] = settings.solis_inverter_id
     if settings.solis_inverter_sn:
         payload["sn"] = settings.solis_inverter_sn
-    body = json.dumps(payload, separators=(",", ":"))
-    headers = sign_headers(settings.solis_key_id, settings.solis_key_secret, DETAIL_PATH, body)
-    own = client is None
-    client = client or httpx.Client(timeout=30)
-    try:
-        r = client.post(settings.solis_api_url + DETAIL_PATH, content=body, headers=headers)
-    finally:
-        if own:
-            client.close()
-    if r.status_code != 200:
-        raise SolisError(f"HTTP {r.status_code}: {r.text[:300]}")
-    data = r.json()
-    if not data.get("success") or str(data.get("code")) != "0":
-        raise SolisError(f"SolisCloud respondió {data.get('code')}: {data.get('msg')}")
-    return data.get("data") or {}
+    return payload
+
+
+def fetch_inverter_detail(settings: Settings, client: httpx.Client | None = None) -> dict:
+    return _post(settings, DETAIL_PATH, _inverter_ref(settings), client) or {}
+
+
+def fetch_inverter_month(settings: Settings, month: str,
+                         client: httpx.Client | None = None) -> list:
+    """Producción diaria de un mes ("2026-11") según SolisCloud."""
+    payload = {**_inverter_ref(settings), "money": "EUR", "month": month, "timeZone": 1}
+    data = _post(settings, MONTH_PATH, payload, client)
+    return data if isinstance(data, list) else (data or {}).get("records") or []
+
+
+def parse_month(records: list) -> dict[str, float]:
+    """{"2026-11-23": kWh} a partir de la respuesta de inverterMonth."""
+    out: dict[str, float] = {}
+    for r in records or []:
+        day = r.get("dateStr") or r.get("timeStr")
+        if not day and r.get("date") is not None:
+            try:
+                from datetime import datetime, timezone
+                from zoneinfo import ZoneInfo
+                ms = float(r["date"])
+                day = datetime.fromtimestamp(ms / 1000, timezone.utc) \
+                    .astimezone(ZoneInfo("Europe/Madrid")).date().isoformat()
+            except (TypeError, ValueError):
+                day = None
+        kwh = _scaled(r.get("energy"), r.get("energyStr", "kWh"), "kWh")
+        if day and kwh is not None:
+            out[str(day)[:10]] = kwh
+    return out
 
 
 def _num(v) -> float | None:
@@ -97,5 +140,7 @@ def parse_detail(detail: dict, plant: Plant) -> dict:
     return {
         "ac_power_w": _scaled(detail.get("pac"), detail.get("pacStr", "kW"), "W"),
         "day_energy_kwh": _scaled(detail.get("eToday"), detail.get("eTodayStr", "kWh"), "kWh"),
+        "month_energy_kwh": _scaled(detail.get("eMonth"), detail.get("eMonthStr", "kWh"), "kWh"),
+        "year_energy_kwh": _scaled(detail.get("eYear"), detail.get("eYearStr", "kWh"), "kWh"),
         "strings": strings,
     }

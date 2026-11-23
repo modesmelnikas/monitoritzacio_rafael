@@ -82,7 +82,7 @@ def test_analysis_flags_low_dead_and_half_parallel():
     assert s["114-S3"]["status"] == "warning"
     assert s["119-S3"]["status"] == "alarm"
     assert s["120-S1+S2"]["status"] == "alarm"
-    assert "paralelo" in s["120-S1+S2"]["message"]
+    assert "paral·lel" in s["120-S1+S2"]["message"]
     assert r["status"] == "alarm"
 
 
@@ -91,7 +91,7 @@ def test_analysis_tracker_all_low_suggests_tracking_problem():
     cur[8] = cur[9] = 5.0   # seguidor 121, las dos entradas
     r = analyze(_readings(cur), plant)
     t = next(t for t in r["trackers"] if t["id"] == "121")
-    assert any("seguimiento" in m for m in t["messages"])
+    assert any("seguiment" in m for m in t["messages"])
 
 
 def test_analysis_idle_at_night():
@@ -180,3 +180,20 @@ def test_health_is_public_when_password_set(monkeypatch):
         assert c.get("/health").status_code == 200
         assert c.get("/api/status").status_code == 401
         assert c.get("/api/status", auth=("rafael", "x")).status_code == 200
+
+
+def test_alert_register_auto_and_manual():
+    from app.main import app
+    with TestClient(app) as c:
+        auto = c.get("/api/alerts").json()["alerts"]
+        assert any(a["source"] == "auto" and a["string_id"] == "121-S3" for a in auto)
+        # una sola alarma oberta per problema, encara que es repeteixi
+        assert len([a for a in auto if a["string_id"] == "121-S3"]) == 1
+        r = c.post("/api/alerts", json={"title": "Panell trencat", "tracker": "120",
+                                        "severity": "alarm", "notes": "Fila 3"})
+        assert r.status_code == 200 and r.json()["source"] == "manual"
+        aid = r.json()["id"]
+        assert c.post("/api/alerts", json={"title": ""}).status_code == 422
+        assert c.post(f"/api/alerts/{aid}/close", json={"notes": "Canviat"}).json()["state"] == "closed"
+        assert all(a["id"] != aid for a in c.get("/api/alerts").json()["alerts"])
+        assert any(a["id"] == aid for a in c.get("/api/alerts?state=closed").json()["alerts"])

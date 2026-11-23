@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import (JSON, DateTime, Float, Integer, String, create_engine,
+from sqlalchemy import (JSON, DateTime, Float, Integer, String, Text, create_engine,
                         Index)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
@@ -39,6 +39,41 @@ class StringReading(Base):
     status: Mapped[str] = mapped_column(String(16), default="ok")
 
     __table_args__ = (Index("ix_string_ts", "string_id", "ts"),)
+
+
+class DailyEnergy(Base):
+    """Producción diaria del inversor (kWh), de SolisCloud (inverterMonth / eToday)."""
+    __tablename__ = "daily_energy"
+    day: Mapped[str] = mapped_column(String(10), primary_key=True)   # "2026-11-23" hora local
+    kwh: Mapped[float] = mapped_column(Float)
+    updated: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class InputDaily(Base):
+    """Energía DC por entrada y día (kWh), integrando la potencia de cada lectura."""
+    __tablename__ = "input_daily"
+    day: Mapped[str] = mapped_column(String(10), primary_key=True)
+    string_id: Mapped[str] = mapped_column(String(16), primary_key=True)
+    tracker: Mapped[str] = mapped_column(String(16), index=True)
+    kwh: Mapped[float] = mapped_column(Float, default=0.0)
+
+
+class Alert(Base):
+    """Registre d'alarmes: automàtiques (de l'anàlisi) o creades a mà."""
+    __tablename__ = "alerts"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    created: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    source: Mapped[str] = mapped_column(String(8))            # auto | manual
+    kind: Mapped[str] = mapped_column(String(32))             # current | voltage | tracking | manual
+    severity: Mapped[str] = mapped_column(String(8))          # warning | alarm
+    tracker: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    string_id: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    title: Mapped[str] = mapped_column(String(200))
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    count: Mapped[int] = mapped_column(Integer, default=1)
+    state: Mapped[str] = mapped_column(String(8), default="open", index=True)  # open | closed
+    closed: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 def _url() -> str:

@@ -99,6 +99,16 @@ Con `SIMULATE=true` rellena 2 días de histórico simulado (el S3 del 121 al 70 
 y un string del paralelo del 124 cortado, para ver las alarmas). Sin
 `SIMULATE=true` nunca genera datos falsos. Tests: `pytest`.
 
+## Dashboard (en catalán)
+
+- **Plànol**: potencia AC y kWh de hoy, mes y año (de SolisCloud), plano de los
+  seguidores (5 × 2 en el móvil, 10 × 1 en pantalla ancha) y producción diaria.
+- **Strings**: potencia por string; S1 y S2 (en paralelo) muestran la mitad de su entrada cada uno.
+- **Seguidors**: kWh DC por seguidor por día, mes o año (tabla `input_daily`).
+- **Alarmes**: lo que detecta la última lectura y el registro de alarmas
+  (automáticas, una por problema, y manuales). Se cierran a mano.
+- **Rendiment**: kWh/kWp por entrada en los últimos 7 días.
+
 ## API
 
 | Ruta | Qué da |
@@ -106,6 +116,9 @@ y un string del paralelo del 124 cortado, para ver las alarmas). Sin
 | `GET /api/status` | Última lectura analizada por seguidor y string |
 | `GET /api/history?hours=24&tracker=114` | Serie temporal por string |
 | `GET /api/daily?days=7` | kWh y kWh/kWp por string y día |
+| `GET /api/production?days=30` | kWh diarios del inversor |
+| `GET /api/trackers/energy?period=day\|month\|year&date=` | kWh por seguidor |
+| `GET/POST /api/alerts`, `POST /api/alerts/{id}/close\|reopen` | Registro de alarmas |
 | `GET /api/raw` | Respuesta cruda de SolisCloud (para revisar el mapeo) |
 | `POST /api/collect` | Fuerza una lectura (solo si el servidor tiene las claves de Solis) |
 
