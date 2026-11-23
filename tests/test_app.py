@@ -322,3 +322,31 @@ def test_telegram_notify(monkeypatch):
     assert notify.send(notify.alert_text("PS", "alarm", "114-S3 baix"), client) == 2
     assert calls[0][0] == "https://api.telegram.org/bot123:abc/sendMessage"
     assert "114-S3 baix" in calls[0][1].decode()
+
+
+def test_backfill_day_fills_gaps(monkeypatch):
+    from datetime import timedelta
+    import app.poller as poller
+    import app.solis as solis
+    from app.config import Settings
+    from app.db import InputDaily, SessionLocal, Snapshot
+    from sqlalchemy import func, select
+    from zoneinfo import ZoneInfo
+    s = Settings(solis_key_id="k", solis_key_secret="s", solis_inverter_sn="SN")
+    monkeypatch.setattr(poller, "get_settings", lambda: s)
+    day = "2030-06-01"
+    t0 = datetime(2030, 6, 1, 10, 0, tzinfo=ZoneInfo("Europe/Madrid"))
+    pts = []
+    for k in range(6):
+        p = dict(REAL)
+        p["dataTimestamp"] = str(int((t0 + timedelta(minutes=5 * k)).timestamp() * 1000))
+        pts.append(p)
+    night = dict(REAL, pac=0, dataTimestamp=str(int((t0 - timedelta(hours=5)).timestamp() * 1000)))
+    night.update({f"iPv{i}": 0 for i in range(1, 21)})
+    pts.append(night)
+    monkeypatch.setattr(solis, "fetch_inverter_day", lambda _s, d: pts)
+    assert poller.backfill_day(day) == 6
+    assert poller.backfill_day(day) == 0          # no duplica
+    with SessionLocal() as db:
+        assert db.scalar(select(func.sum(InputDaily.kwh)).where(InputDaily.day == day)) > 0
+        assert db.scalar(select(func.count(Snapshot.id)).where(Snapshot.ts >= t0.astimezone(timezone.utc))) >= 6

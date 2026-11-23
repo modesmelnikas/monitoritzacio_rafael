@@ -86,6 +86,17 @@ def fetch_inverter_month(settings: Settings, month: str,
     return data if isinstance(data, list) else (data or {}).get("records") or []
 
 
+DAY_PATH = "/v1/api/inverterDay"
+
+
+def fetch_inverter_day(settings: Settings, day: str,
+                       client: httpx.Client | None = None) -> list:
+    """Dades de tot un dia ("2026-11-23"), un punt cada ~5 min."""
+    payload = {**_inverter_ref(settings), "money": "EUR", "time": day, "timeZone": 1}
+    data = _post(settings, DAY_PATH, payload, client)
+    return data if isinstance(data, list) else (data or {}).get("records") or []
+
+
 def parse_month(records: list) -> dict[str, float]:
     """{"2026-11-23": kWh} a partir de la respuesta de inverterMonth."""
     out: dict[str, float] = {}
