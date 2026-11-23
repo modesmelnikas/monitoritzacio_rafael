@@ -77,38 +77,40 @@ def _accumulate_energy(db, now: datetime, readings: list[dict]) -> None:
             db.add(InputDaily(day=day, string_id=r["string_id"], tracker=r["tracker"], kwh=kwh))
 
 
-CONFIRM_READINGS = 3   # lectures seguides abans de donar d'alta una alarma automàtica
+def sync_alerts(db, now: datetime, result: dict, data: dict | None = None,
+                raw: dict | None = None) -> None:
+    """Aplica les regles d'alarma i en desa el resultat al registre.
 
-
-def sync_alerts(db, now: datetime, result: dict) -> None:
-    """Desa al registre les alarmes de l'anàlisi (una per problema).
-
-    Una alarma nova queda "pending" fins que es repeteix CONFIRM_READINGS lectures
-    seguides (~30 min); si abans desapareix, s'esborra. Així no s'omple el registre
-    amb ombres passatgeres o el sol baix.
+    Una alarma nova queda "pending" fins que la regla es compleix les lectures
+    seguides que demana (min_readings); si abans deixa de complir-se, s'esborra.
     """
     from sqlalchemy import select
-    if not result.get("active"):
-        return
+    from .db import AlertRule
+    from .rules import evaluate
+    plant = get_plant()
+    data = data or {}
     seen: set[int] = set()
-    for t in result["trackers"]:
-        for it in t.get("issues", []):
+    for rule in db.scalars(select(AlertRule).where(AlertRule.enabled.is_(True))):
+        for hit in evaluate(rule, result, data, raw, now, plant):
+            kind = f"rule:{rule.id}"
             q = select(Alert).where(Alert.state.in_(("open", "pending")), Alert.source == "auto",
-                                    Alert.kind == it["kind"], Alert.tracker == t["id"])
-            q = q.where(Alert.string_id == it["string_id"]) if it["string_id"] else \
+                                    Alert.kind == kind)
+            q = q.where(Alert.tracker == hit["tracker"]) if hit["tracker"] else \
+                q.where(Alert.tracker.is_(None))
+            q = q.where(Alert.string_id == hit["string_id"]) if hit["string_id"] else \
                 q.where(Alert.string_id.is_(None))
             a = db.scalars(q).first()
+            title = f"{rule.name}: {hit['text']}"[:200]
+            need = max(1, rule.min_readings or 1)
             if a:
-                a.last_seen, a.count, a.title = now, a.count + 1, it["text"]
-                if it["severity"] == "alarm":
-                    a.severity = "alarm"
-                if a.state == "pending" and a.count >= CONFIRM_READINGS:
+                a.last_seen, a.count, a.title, a.severity = now, a.count + 1, title, rule.severity
+                if a.state == "pending" and a.count >= need:
                     a.state = "open"
             else:
-                a = Alert(created=now, last_seen=now, source="auto", kind=it["kind"],
-                          severity=it["severity"], tracker=t["id"], string_id=it["string_id"],
-                          title=it["text"], count=1,
-                          state="open" if CONFIRM_READINGS <= 1 else "pending")
+                a = Alert(created=now, last_seen=now, source="auto", kind=kind,
+                          severity=rule.severity, tracker=hit["tracker"],
+                          string_id=hit["string_id"], title=title, count=1,
+                          state="open" if need <= 1 else "pending")
                 db.add(a)
                 db.flush()
             seen.add(a.id)
@@ -151,7 +153,7 @@ def store_reading(now: datetime, data: dict, raw: dict | None, source: str,
                         day_energy_kwh=data["day_energy_kwh"], raw=raw)
         db.add(snap)
         db.flush()
-        sync_alerts(db, now, result)
+        sync_alerts(db, now, result, data, raw)
         for t in result["trackers"]:
             for s in t["strings"]:
                 db.add(StringReading(snapshot_id=snap.id, ts=now, string_id=s["string_id"],
