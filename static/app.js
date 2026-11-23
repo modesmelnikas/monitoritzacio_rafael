@@ -278,14 +278,18 @@ async function selectTracker(id, scroll = true) {
   $("detail").hidden = false;
   $("dTitle").textContent = `Seguidor ${t.id} · MPPT ${t.mppt} · ${fmtW(t.power_w)}`;
   $("dMsgs").innerHTML = t.messages.map((m) => `<div class="msg ${t.status}">${esc(m)}</div>`).join("");
-  $("dStrings").innerHTML = t.strings.map((x) => `
-    <div class="sbox ${x.status}"><b>${esc(x.label)}</b><small>Entrada PV${x.input ?? ""}${x.n_strings > 1 ? " · paral·lel" : ""}</small>
-      <div class="row"><span>I</span><span>${fmt(x.current_a, 2, "A")}</span></div>
-      ${x.n_strings > 1 ? `<div class="row"><span>I/str</span><span>${fmt(x.current_per_string_a, 2, "A")}</span></div>` : ""}
+  // Un quadre per string (S1, S2, S3). S1 i S2 comparteixen entrada: cadascun en porta la meitat.
+  $("dStrings").innerHTML = t.strings.flatMap((x) => {
+    const names = (x.label || "").split("+");
+    const n = Math.max(1, x.n_strings || names.length);
+    return names.map((name) => `
+    <div class="sbox ${x.status}"><b>${esc(name)}</b><small>Entrada PV${x.input ?? ""}${n > 1 ? " · ½" : ""}</small>
+      <div class="row"><span>I</span><span>${fmt(x.current_a == null ? null : x.current_a / n, 2, "A")}</span></div>
       <div class="row"><span>V</span><span>${fmt(x.voltage_v, 0, "V")}</span></div>
-      <div class="row"><span>P</span><span>${fmtW(x.power_w)}</span></div>
+      <div class="row"><span>P</span><span>${fmtW(x.power_w == null ? null : x.power_w / n)}</span></div>
       <div class="row"><span>Δ</span><span>${x.deviation_pct == null ? "–" : x.deviation_pct.toFixed(1) + " %"}</span></div>
-    </div>`).join("");
+    </div>`);
+  }).join("");
   if (scroll) $("detail").scrollIntoView({ behavior: "smooth", block: "nearest" });
   try {
     const h = await getJSON(`/api/history?hours=18&tracker=${encodeURIComponent(id)}`);
