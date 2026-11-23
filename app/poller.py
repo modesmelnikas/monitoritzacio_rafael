@@ -17,16 +17,6 @@ log = logging.getLogger("poller")
 
 
 NIGHT_AC_W = 50       # per sota d'això es considera nit (soroll de l'inversor apagat)
-NIGHT_MAX_A = 0.1     # corrents residuals de capvespre (p. ex. 0,03 A)
-
-
-def _is_night(data: dict) -> bool:
-    # l'inversor pot donar corrents residuals de nit (0,1-0,3 A) amb 20 W d'AC:
-    # si sabem la potència AC, mana ella
-    if data.get("ac_power_w") is not None:
-        return data["ac_power_w"] < NIGHT_AC_W
-    currents = [s["current_a"] or 0 for s in data["strings"]]
-    return max(currents, default=0) < NIGHT_MAX_A
 
 
 def save_daily(values: dict[str, float], now: datetime | None = None) -> None:
@@ -162,9 +152,6 @@ def collect_once(now: datetime | None = None, keep_night: bool = False) -> int |
 def store_reading(now: datetime, data: dict, raw: dict | None, source: str,
                   keep_night: bool = False) -> int | None:
     settings, plant = get_settings(), get_plant()
-    if _is_night(data) and not keep_night and source == "solis":
-        log.info("Inversor sin producción: no se guarda la lectura")
-        return None
     result = analyze(data["strings"], plant)
     with SessionLocal() as db:
         if source == "solis" and not keep_night:
@@ -266,7 +253,7 @@ def backfill_day(day: str) -> int:
             # a inverterDay, pacStr no sempre quadra amb "pac": es tria la lectura
             # (W o kW) més propera a la suma de potència DC dels strings
             data["ac_power_w"] = _ac_closest_to_dc(pt.get("pac"), data)
-            if _is_night(data) or any(abs((ts - h).total_seconds()) < 240 for h in have):
+            if any(abs((ts - h).total_seconds()) < 240 for h in have):
                 continue
             result = analyze(data["strings"], plant)
             snap = Snapshot(ts=ts, source="solis", ac_power_w=data["ac_power_w"],
@@ -333,7 +320,6 @@ def run_batch(readings: int = 1, interval_s: float = 300) -> int:
             batch.append(fetch_reading())
         except Exception:  # noqa: BLE001 - si falla una, se guardan las demás
             log.exception("Error leyendo el inversor")
-    batch = [b for b in batch if not (b[3] == "solis" and _is_night(b[1]))]
     if not batch:
         log.info("Nada que guardar (noche o sin lecturas)")
         return 0

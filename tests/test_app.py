@@ -123,7 +123,7 @@ def test_api_end_to_end():
         assert c.get("/").status_code == 200
 
 
-def test_poller_real_mode_skips_night_and_keeps_only_last_raw(monkeypatch):
+def test_poller_real_mode_keeps_night_and_only_last_raw(monkeypatch):
     import app.poller as poller
     from app.config import Settings
     from app.db import SessionLocal, Snapshot, init_db
@@ -139,14 +139,14 @@ def test_poller_real_mode_skips_night_and_keeps_only_last_raw(monkeypatch):
         d.update({f"iPv{k}": (14 if k % 2 else 7) * i for k in range(1, 21)})
         return d
 
-    monkeypatch.setattr(poller, "fetch_inverter_detail", lambda _s: detail(0))
-    assert poller.collect_once() is None                       # de noche no guarda
-    monkeypatch.setattr(poller, "fetch_inverter_detail", lambda _s: detail(1))
     from datetime import timedelta
     t0 = datetime.now(timezone.utc) + timedelta(hours=1)
-    a = poller.collect_once(t0)
-    assert poller.collect_once(t0 + timedelta(minutes=2)) is None   # duplicada (<4 min)
-    b = poller.collect_once(t0 + timedelta(minutes=10))
+    monkeypatch.setattr(poller, "fetch_inverter_detail", lambda _s: detail(0))
+    assert poller.collect_once(t0) is not None                 # de nit també es guarda
+    monkeypatch.setattr(poller, "fetch_inverter_detail", lambda _s: detail(1))
+    a = poller.collect_once(t0 + timedelta(minutes=10))
+    assert poller.collect_once(t0 + timedelta(minutes=12)) is None  # duplicada (<4 min)
+    b = poller.collect_once(t0 + timedelta(minutes=20))
     with SessionLocal() as db:
         assert db.get(Snapshot, a).raw is None                  # la cruda vieja se borra
         assert db.get(Snapshot, b).raw["pac"] == 50
@@ -263,17 +263,6 @@ def test_auto_alert_needs_three_readings():
     assert state() == "open"
 
 
-def test_batch_skips_db_at_night(monkeypatch):
-    import app.poller as poller
-    from app.config import Settings
-    s = Settings(solis_key_id="k", solis_key_secret="s", solis_inverter_sn="SN", simulate=False)
-    monkeypatch.setattr(poller, "get_settings", lambda: s)
-    monkeypatch.setattr(poller, "fetch_inverter_detail",
-                        lambda _s: {"pac": 0, **{f"iPv{k}": 0 for k in range(1, 21)}})
-    monkeypatch.setattr(poller, "init_db", lambda: (_ for _ in ()).throw(AssertionError("DB")))
-    assert poller.run_batch(2, 0) == 0
-
-
 def test_rules_crud_and_evaluation():
     from datetime import datetime, timezone
     from types import SimpleNamespace
@@ -345,7 +334,7 @@ def test_backfill_day_fills_gaps(monkeypatch):
     night.update({f"iPv{i}": 0 for i in range(1, 21)})
     pts.append(night)
     monkeypatch.setattr(solis, "fetch_inverter_day", lambda _s, d: pts)
-    assert poller.backfill_day(day) == 6
+    assert poller.backfill_day(day) == 7          # també el punt de nit
     assert poller.backfill_day(day) == 0          # no duplica
     with SessionLocal() as db:
         assert db.scalar(select(func.sum(InputDaily.kwh)).where(InputDaily.day == day)) > 0
