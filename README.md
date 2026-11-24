@@ -147,6 +147,26 @@ Cuando una alarma automática se confirma, el lector manda un mensaje por Telegr
 3. En GitHub → Settings → Secrets → Actions, añade `TELEGRAM_BOT_TOKEN` y
    `TELEGRAM_CHAT_ID` (varios ids separados por comas para avisar a más personas).
 
+### Resumen diario por correo
+
+Cada noche se envía un correo (en catalán) con los kWh del inversor, los kWh de
+cada seguidor con su % frente a la mediana, el detalle S1+S2 / S3 (cada grupo
+comparado con el suyo), comparación con ayer, acumulado del mes y las alarmas del día.
+
+Se envía con **Brevo** (gratis, 300 correos/día) por su API HTTP, porque Render
+en plan gratuito bloquea el SMTP.
+1. Crea una cuenta en brevo.com. En *Senders, domains* verifica el correo remitente.
+2. En *SMTP & API → API keys* crea una clave.
+3. En Render → Environment añade `BREVO_API_KEY`, `EMAIL_FROM` (el remitente
+   verificado) y `EMAIL_TO` (destinatarios separados por comas).
+4. En cron-job.org crea una tarea diaria (p. ej. 21:30, Europe/Madrid) a
+   `https://<tu-web>.onrender.com/api/resum-diari?key=<CRON_KEY>`, timeout 60 s.
+
+Vista previa sin enviar (con sesión iniciada): `/api/resum-diari/preview?date=2026-11-23`.
+Reenviar un día concreto: `/api/resum-diari?key=...&date=2026-11-23`.
+Fuera de Render también puede enviarse por SMTP (`SMTP_HOST`, `SMTP_PORT`,
+`SMTP_USER`, `SMTP_PASSWORD`) si no hay `BREVO_API_KEY`.
+
 ## API
 
 | Ruta | Qué da |
@@ -159,6 +179,8 @@ Cuando una alarma automática se confirma, el lector manda un mensaje por Telegr
 | `GET/POST /api/alerts`, `POST /api/alerts/{id}/close\|reopen` | Registro de alarmas |
 | `GET/POST /api/rules`, `PUT/DELETE /api/rules/{id}` | Reglas de alarma |
 | `GET /api/power?date=` | Curva de potencia de un día |
+| `GET /api/resum-diari?key=&date=` | Envía el resumen diario por correo |
+| `GET /api/resum-diari/preview?date=` | Muestra el correo del resumen sin enviarlo |
 | `GET /api/raw` | Respuesta cruda de SolisCloud (para revisar el mapeo) |
 | `POST /api/collect` | Fuerza una lectura (solo si el servidor tiene las claves de Solis) |
 

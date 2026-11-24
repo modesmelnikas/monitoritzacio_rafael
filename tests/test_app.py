@@ -367,3 +367,54 @@ def test_energy_month_and_year():
         assert len(m["bars"]) == 31 and m["bars"][0]["kwh"] == 100.0 and m["total_kwh"] == 150.5
         y = c.get("/api/energy?period=year&date=2029").json()
         assert len(y["bars"]) == 12 and y["bars"][2]["kwh"] == 150.5 and y["bars"][6]["kwh"] == 300.0
+
+
+def test_daily_email_summary(monkeypatch):
+    from datetime import date as _date
+    from app import report
+    from app.db import Alert, DailyEnergy, InputDaily, SessionLocal, init_db
+    init_db()
+    day = "2026-06-15"
+    with SessionLocal() as db:
+        db.add(DailyEnergy(day=day, kwh=420.0, updated=datetime.now(timezone.utc)))
+        for t in plant.trackers:
+            for s in t.strings:
+                k = 30.0 * s.n_strings if s.n_strings == 2 else 34.0
+                if s.id == "114-S3":
+                    k = 20.0          # 114-S3 un 40 % per sota de les altres S3
+                db.add(InputDaily(day=day, string_id=s.id, tracker=t.id, kwh=k))
+        db.add(Alert(created=datetime(2026, 6, 15, 11, 0, tzinfo=timezone.utc),
+                     last_seen=datetime(2026, 6, 15, 12, 0, tzinfo=timezone.utc),
+                     source="auto", kind="rule:1", severity="warning", tracker="114",
+                     string_id="114-S3", title="Corrent baixa: 114-S3 -40 %", state="open"))
+        db.commit()
+    s = report.build_summary(_date(2026, 6, 15))
+    t = {x["id"]: x for x in s["trackers"]}
+    assert s["ac_kwh"] == 420.0 and s["dc_kwh"] == 10 * 94 - 14
+    assert t["114"]["flag"] and not t["117"]["flag"]
+    assert t["114"]["inputs"][1]["dev_pct"] == round((20 / 34 - 1) * 100, 1)
+    assert t["117"]["inputs"][0]["dev_pct"] == 0.0
+    assert len(s["alerts"]) == 1 and s["worst"] == "114"
+    h = report.render_html(s, "https://exemple.onrender.com")
+    assert "dilluns 15 de juny de 2026" in h and "Corrent baixa" in h
+    assert "1 seguidor a revisar" in report.subject(s)
+
+    sent = {}
+
+    class FakeClient:
+        def post(self, url, headers, json):
+            sent.update(url=url, headers=headers, json=json)
+            return type("R", (), {"status_code": 201, "text": "{}"})()
+
+    monkeypatch.setenv("EMAIL_TO", "a@exemple.cat, b@exemple.cat")
+    monkeypatch.setenv("EMAIL_FROM", "fv@exemple.cat")
+    monkeypatch.setenv("BREVO_API_KEY", "xkeysib-test")
+    assert report.send_email("x", h, "t", client=FakeClient()) == "brevo"
+    assert [x["email"] for x in sent["json"]["to"]] == ["a@exemple.cat", "b@exemple.cat"]
+
+    from app.main import app
+    c = TestClient(app)
+    monkeypatch.setenv("CRON_KEY", "secret")
+    assert c.get("/api/resum-diari?key=dolenta").status_code == 403
+    r = c.get("/api/resum-diari/preview?date=2026-06-15")
+    assert r.status_code == 200 and "114" in r.text
