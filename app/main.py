@@ -48,7 +48,8 @@ app = FastAPI(title="Monitorización strings FV", lifespan=lifespan)
 HEALTH_PATHS = {"/healthz", "/health", "/api/health"}  # sin contraseña, para el health check de Render
 
 
-PUBLIC_PATHS = HEALTH_PATHS | {"/login", "/api/login", "/api/logout", "/manifest.webmanifest", "/api/cron"}
+PUBLIC_PATHS = HEALTH_PATHS | {"/login", "/api/login", "/api/logout", "/manifest.webmanifest", "/api/cron",
+                               "/api/resum-diari"}
 
 
 def _basic_user(request: Request, db):
@@ -591,14 +592,59 @@ def cron(key: str = ""):
     Llegeix l'inversor i guarda, i de pas manté despert el servidor de Render.
     Protegit amb CRON_KEY (paràmetre ?key=).
     """
-    import os
-    expected = os.getenv("CRON_KEY", "")
-    if not expected or not hmac.compare_digest(key, expected):
-        raise HTTPException(403, "Clau incorrecta")
+    _check_cron_key(key)
     try:
         return {"snapshot_id": collect_once()}
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"No se pudo leer el inversor: {e}") from e
+
+
+def _check_cron_key(key: str) -> None:
+    import os
+    expected = os.getenv("CRON_KEY", "")
+    if not expected or not hmac.compare_digest(key, expected):
+        raise HTTPException(403, "Clau incorrecta")
+
+
+def _public_url(request: Request) -> str:
+    import os
+    url = os.getenv("DASHBOARD_URL") or str(request.base_url)
+    if os.getenv("RENDER") and url.startswith("http://"):
+        url = "https://" + url[len("http://"):]
+    return url.rstrip("/")
+
+
+def _report_day(date: str | None):
+    from . import report
+    if not date:
+        return report.default_day()
+    try:
+        return datetime.strptime(date[:10], "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(422, "Data incorrecta")
+
+
+@app.api_route("/api/resum-diari", methods=["GET", "POST"])
+def resum_diari(request: Request, key: str = "", date: str | None = None):
+    """Envia per correu el resum de producció del dia (per a cron-job.org, p. ex. 21:30).
+
+    Protegit amb CRON_KEY. ?date=AAAA-MM-DD per reenviar un altre dia.
+    """
+    from . import report
+    _check_cron_key(key)
+    try:
+        return report.send_daily(_report_day(date), dashboard_url=_public_url(request))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"No s'ha pogut enviar el correu: {e}") from e
+
+
+@app.get("/api/resum-diari/preview")
+def resum_diari_preview(request: Request, date: str | None = None):
+    """Mostra el correu del resum diari al navegador (cal haver entrat)."""
+    from fastapi.responses import HTMLResponse
+    from . import report
+    s = report.build_summary(_report_day(date))
+    return HTMLResponse(report.render_html(s, _public_url(request)))
 
 
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")

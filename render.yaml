@@ -39,3 +39,10 @@ services:
         sync: false
       - key: TELEGRAM_CHAT_ID
         sync: false
+      # Resum diari per correu (Brevo), cridat per cron-job.org a /api/resum-diari?key=...
+      - key: BREVO_API_KEY
+        sync: false
+      - key: EMAIL_FROM         # remitent verificat a Brevo
+        sync: false
+      - key: EMAIL_TO           # destinataris, separats per comes
+        sync: false
