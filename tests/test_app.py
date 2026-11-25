@@ -381,7 +381,7 @@ def test_daily_email_summary(monkeypatch):
             for s in t.strings:
                 k = 30.0 * s.n_strings if s.n_strings == 2 else 34.0
                 if s.id == "114-S3":
-                    k = 20.0          # 114-S3 un 40 % per sota de les altres S3
+                    k = 20.0          # el 114 queda un 15 % per sota dels altres
                 db.add(InputDaily(day=day, string_id=s.id, tracker=t.id, kwh=k))
         db.add(Alert(created=datetime(2026, 6, 15, 11, 0, tzinfo=timezone.utc),
                      last_seen=datetime(2026, 6, 15, 12, 0, tzinfo=timezone.utc),
@@ -392,10 +392,8 @@ def test_daily_email_summary(monkeypatch):
     t = {x["id"]: x for x in s["trackers"]}
     assert s["ac_kwh"] == 420.0 and s["dc_kwh"] == 10 * 94 - 14
     assert t["114"]["flag"] and not t["117"]["flag"]
-    assert [i["label"] for i in t["114"]["inputs"]] == ["S1", "S2", "S3"]
-    assert t["114"]["inputs"][0]["kwh"] == 30.0 and t["114"]["inputs"][1]["shared"]
-    assert t["114"]["inputs"][2]["dev_pct"] == round((20 / 34 - 1) * 100, 1)
-    assert t["117"]["inputs"][0]["dev_pct"] == 0.0
+    assert t["117"]["dev_pct"] == 0.0 and t["114"]["dev_pct"] == round((80 / 94 - 1) * 100, 1)
+    assert "inputs" not in t["114"]
     assert len(s["alerts"]) == 1 and s["worst"] == "114"
     h = report.render_html(s, "https://exemple.onrender.com")
     assert "dilluns 15 de juny de 2026" in h and "Corrent baixa" in h
