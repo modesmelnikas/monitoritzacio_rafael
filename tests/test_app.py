@@ -392,7 +392,9 @@ def test_daily_email_summary(monkeypatch):
     t = {x["id"]: x for x in s["trackers"]}
     assert s["ac_kwh"] == 420.0 and s["dc_kwh"] == 10 * 94 - 14
     assert t["114"]["flag"] and not t["117"]["flag"]
-    assert t["114"]["inputs"][1]["dev_pct"] == round((20 / 34 - 1) * 100, 1)
+    assert [i["label"] for i in t["114"]["inputs"]] == ["S1", "S2", "S3"]
+    assert t["114"]["inputs"][0]["kwh"] == 30.0 and t["114"]["inputs"][1]["shared"]
+    assert t["114"]["inputs"][2]["dev_pct"] == round((20 / 34 - 1) * 100, 1)
     assert t["117"]["inputs"][0]["dev_pct"] == 0.0
     assert len(s["alerts"]) == 1 and s["worst"] == "114"
     h = report.render_html(s, "https://exemple.onrender.com")

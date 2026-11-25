@@ -69,13 +69,16 @@ def build_summary(day: date) -> dict:
             .order_by(Alert.created)).all()
         open_total = len(db.scalars(select(Alert.id).where(Alert.state == "open")).all())
 
-    # Comparació d'entrades: cada grup (S1+S2 i S3) amb el seu, en kWh per string,
-    # perquè les S3 donen sistemàticament més per string que S1+S2.
-    groups: dict[str, list[float]] = {}
+    # Un valor per string (S1, S2, S3). S1 i S2 van en paral·lel a la mateixa
+    # entrada: l'inversor només en veu la suma, i cadascun en porta la meitat.
+    # Cada string es compara amb els de la mateixa posició dels altres seguidors
+    # (S1 amb S1, S3 amb S3), perquè les S3 donen sistemàticament una mica més.
+    per_name: dict[str, list[float]] = {}
     for s in plant.strings:
         if s.id in inputs:
-            groups.setdefault(s.label, []).append(inputs[s.id] / s.n_strings)
-    group_med = {k: median(v) for k, v in groups.items() if v}
+            for name in s.names:
+                per_name.setdefault(name, []).append(inputs[s.id] / s.n_strings)
+    name_med = {k: median(v) for k, v in per_name.items() if v}
 
     trackers = []
     for t in plant.trackers:
@@ -84,8 +87,10 @@ def build_summary(day: date) -> dict:
         for s in t.strings:
             k = inputs.get(s.id)
             per = k / s.n_strings if k is not None else None
-            ins.append({"label": s.label, "kwh": None if k is None else round(k, 1),
-                        "dev_pct": None if per is None else _pct(per, group_med.get(s.label, 0))})
+            for name in s.names:
+                ins.append({"label": name, "shared": s.n_strings > 1,
+                            "kwh": None if per is None else round(per, 2),
+                            "dev_pct": None if per is None else _pct(per, name_med.get(name, 0))})
         kwh = sum(inputs.get(s.id, 0.0) for s in t.strings)
         prev = sum(prev_inputs.get(s.id, 0.0) for s in t.strings)
         trackers.append({"id": t.id, "kwh": round(kwh, 1), "kwp": kwp,
@@ -155,9 +160,10 @@ def render_text(s: dict) -> str:
               + (f" (ahir {_num(s['ac_prev_kwh'])} kWh)" if s["ac_prev_kwh"] is not None else ""),
               f"Suma seguidors (DC): {_num(s['dc_kwh'])} kWh",
               f"Acumulat del mes: {_num(s['month_kwh'])} kWh", "",
-              "Seguidor  kWh    kWh/kWp  vs mitjana  S1+S2 / S3"]
+              "Seguidor  kWh    kWh/kWp  vs mitjana  S1 / S2 / S3 (kWh per string)"]
     for t in s["trackers"]:
-        ins = " / ".join(f"{_num(i['kwh'])} ({_signed(i['dev_pct'])})" for i in t["inputs"])
+        ins = " / ".join(f"{i['label']} {_num(i['kwh'], 2)} ({_signed(i['dev_pct'])})"
+                         for i in t["inputs"])
         lines.append(f"{'⚠ ' if t['flag'] else '  '}{t['id']:<7} {_num(t['kwh']):>6} "
                      f"{_num(t['kwh_kwp'], 2):>8}  {_signed(t['dev_pct']):>9}   {ins}")
     lines += ["", f"Alarmes del dia: {len(s['alerts'])} · obertes ara: {s['open_alerts']}"]
@@ -200,7 +206,7 @@ def render_html(s: dict, dashboard_url: str = "") -> str:
     rows = []
     for t in s["trackers"]:
         w = max(2, round(t["kwh"] / best * 100))
-        ins = "<br>".join(f"{e(i['label'])}: {_num(i['kwh'])} "
+        ins = "<br>".join(f"{e(i['label'])}{'½' if i['shared'] else ''}: {_num(i['kwh'], 2)} "
                           f"<span style='color:{_color(i['dev_pct'])}'>({_signed(i['dev_pct'])})</span>"
                           for i in t["inputs"])
         bg = "#fef3c7" if t["flag"] else "#ffffff"
@@ -215,10 +221,12 @@ def render_html(s: dict, dashboard_url: str = "") -> str:
             f"<td style='padding:8px 6px;font-size:12px;color:#334155'>{ins}</td></tr>")
     table = ("<table width='100%' cellspacing='0' style='border-collapse:collapse;font-size:14px'>"
              "<tr style='color:#64748b;font-size:12px;text-align:left'><th style='padding:4px 6px'>Seguidor</th>"
-             "<th style='padding:4px 6px'>Producció</th><th style='padding:4px 6px'>Entrades</th></tr>"
+             "<th style='padding:4px 6px'>Producció</th><th style='padding:4px 6px'>Strings (kWh)</th></tr>"
              + "".join(rows) + "</table>"
              "<p style='font-size:12px;color:#64748b'>La mitjana és la mediana dels 10 seguidors en kWh/kWp. "
-             "Cada entrada es compara amb les del seu grup (S1+S2 amb S1+S2, S3 amb S3) per string. "
+             "Cada string es compara amb els de la mateixa posició dels altres seguidors (S1 amb S1, "
+             "S2 amb S2, S3 amb S3). ½: S1 i S2 van en paral·lel a la mateixa entrada i "
+             "l'inversor només en veu la suma, així que cadascun en mostra la meitat. "
              f"Es marca ⚠️ quan queda {int(WARN_PCT)} % o més per sota.</p>")
     sev = {"alarm": "🔴", "warning": "🟠", "info": "🔵"}
     if s["alerts"]:
