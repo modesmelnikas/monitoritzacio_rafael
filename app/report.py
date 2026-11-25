@@ -69,41 +69,19 @@ def build_summary(day: date) -> dict:
             .order_by(Alert.created)).all()
         open_total = len(db.scalars(select(Alert.id).where(Alert.state == "open")).all())
 
-    # Un valor per string (S1, S2, S3). S1 i S2 van en paral·lel a la mateixa
-    # entrada: l'inversor només en veu la suma, i cadascun en porta la meitat.
-    # Cada string es compara amb els de la mateixa posició dels altres seguidors
-    # (S1 amb S1, S3 amb S3), perquè les S3 donen sistemàticament una mica més.
-    per_name: dict[str, list[float]] = {}
-    for s in plant.strings:
-        if s.id in inputs:
-            for name in s.names:
-                per_name.setdefault(name, []).append(inputs[s.id] / s.n_strings)
-    name_med = {k: median(v) for k, v in per_name.items() if v}
-
     trackers = []
     for t in plant.trackers:
         kwp = plant.string_wp * sum(s.n_strings for s in t.strings) / 1000
-        ins = []
-        for s in t.strings:
-            k = inputs.get(s.id)
-            per = k / s.n_strings if k is not None else None
-            for name in s.names:
-                ins.append({"label": name, "shared": s.n_strings > 1,
-                            "kwh": None if per is None else round(per, 2),
-                            "dev_pct": None if per is None else _pct(per, name_med.get(name, 0))})
         kwh = sum(inputs.get(s.id, 0.0) for s in t.strings)
         prev = sum(prev_inputs.get(s.id, 0.0) for s in t.strings)
         trackers.append({"id": t.id, "kwh": round(kwh, 1), "kwp": kwp,
                          "kwh_kwp": round(kwh / kwp, 2) if kwp else None,
-                         "prev_kwh": round(prev, 1) if prev_inputs else None,
-                         "inputs": ins})
+                         "prev_kwh": round(prev, 1) if prev_inputs else None})
     yields = [t["kwh_kwp"] for t in trackers if t["kwh_kwp"]]
     ref = median(yields) if yields else 0
     for t in trackers:
         t["dev_pct"] = _pct(t["kwh_kwp"] or 0, ref) if inputs else None
-        t["flag"] = bool(inputs) and (
-            (t["dev_pct"] is not None and t["dev_pct"] <= -WARN_PCT) or
-            any(i["dev_pct"] is not None and i["dev_pct"] <= -WARN_PCT for i in t["inputs"]))
+        t["flag"] = t["dev_pct"] is not None and t["dev_pct"] <= -WARN_PCT
     ranked = sorted((t for t in trackers if inputs), key=lambda t: t["kwh"], reverse=True)
     dc = sum(inputs.values())
     return {
@@ -160,12 +138,10 @@ def render_text(s: dict) -> str:
               + (f" (ahir {_num(s['ac_prev_kwh'])} kWh)" if s["ac_prev_kwh"] is not None else ""),
               f"Suma seguidors (DC): {_num(s['dc_kwh'])} kWh",
               f"Acumulat del mes: {_num(s['month_kwh'])} kWh", "",
-              "Seguidor  kWh    kWh/kWp  vs mitjana  S1 / S2 / S3 (kWh per string)"]
+              "Seguidor  kWh    kWh/kWp  vs mitjana"]
     for t in s["trackers"]:
-        ins = " / ".join(f"{i['label']} {_num(i['kwh'], 2)} ({_signed(i['dev_pct'])})"
-                         for i in t["inputs"])
         lines.append(f"{'⚠ ' if t['flag'] else '  '}{t['id']:<7} {_num(t['kwh']):>6} "
-                     f"{_num(t['kwh_kwp'], 2):>8}  {_signed(t['dev_pct']):>9}   {ins}")
+                     f"{_num(t['kwh_kwp'], 2):>8}  {_signed(t['dev_pct']):>9}")
     lines += ["", f"Alarmes del dia: {len(s['alerts'])} · obertes ara: {s['open_alerts']}"]
     lines += [f"  {a['time']} {a['title']}" + (" (tancada)" if a["state"] == "closed" else "")
               for a in s["alerts"]]
@@ -206,28 +182,19 @@ def render_html(s: dict, dashboard_url: str = "") -> str:
     rows = []
     for t in s["trackers"]:
         w = max(2, round(t["kwh"] / best * 100))
-        ins = "<br>".join(f"{e(i['label'])}{"<sup style='font-size:9px;color:#94a3b8'>½</sup>" if i['shared'] else ''}: {_num(i['kwh'], 2)} "
-                          f"<span style='color:{_color(i['dev_pct'])}'>({_signed(i['dev_pct'])})</span>"
-                          for i in t["inputs"])
         bg = "#fef3c7" if t["flag"] else "#ffffff"
         rows.append(
             f"<tr style='background:{bg};border-top:1px solid #e2e8f0'>"
             f"<td style='padding:8px 6px;font-weight:700'>{'⚠️ ' if t['flag'] else ''}{e(t['id'])}</td>"
-            f"<td style='padding:8px 6px;width:40%'><div style='font-weight:600'>{_num(t['kwh'])} kWh</div>"
+            f"<td style='padding:8px 6px'><div style='font-weight:600'>{_num(t['kwh'])} kWh</div>"
             f"<div style='background:#e2e8f0;border-radius:3px;height:6px'>"
             f"<div style='background:{_color(t['dev_pct'])};width:{w}%;height:6px;border-radius:3px'></div></div>"
             f"<div style='font-size:12px;color:{_color(t['dev_pct'])}'>{_signed(t['dev_pct'])} vs mitjana · "
-            f"{_num(t['kwh_kwp'], 2)} kWh/kWp</div></td>"
-            f"<td style='padding:8px 6px;font-size:12px;color:#334155'>{ins}</td></tr>")
+            f"{_num(t['kwh_kwp'], 2)} kWh/kWp</div></td></tr>")
     table = ("<table width='100%' cellspacing='0' style='border-collapse:collapse;font-size:14px'>"
              "<tr style='color:#64748b;font-size:12px;text-align:left'><th style='padding:4px 6px'>Seguidor</th>"
-             "<th style='padding:4px 6px'>Producció</th><th style='padding:4px 6px'>Strings (kWh)</th></tr>"
-             + "".join(rows) + "</table>"
-             "<p style='font-size:12px;color:#64748b'>La mitjana és la mediana dels 10 seguidors en kWh/kWp. "
-             "Cada string es compara amb els de la mateixa posició dels altres seguidors (S1 amb S1, "
-             "S2 amb S2, S3 amb S3). ½: S1 i S2 van en paral·lel a la mateixa entrada i "
-             "l'inversor només en veu la suma, així que cadascun en mostra la meitat. "
-             f"Es marca ⚠️ quan queda {int(WARN_PCT)} % o més per sota.</p>")
+             "<th style='padding:4px 6px'>Producció</th></tr>"
+             + "".join(rows) + "</table>")
     sev = {"alarm": "🔴", "warning": "🟠", "info": "🔵"}
     if s["alerts"]:
         items = "".join(f"<li>{a['time']} {sev.get(a['severity'], '⚠️')} {e(a['title'])}"
