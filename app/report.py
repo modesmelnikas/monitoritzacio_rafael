@@ -206,7 +206,7 @@ def render_html(s: dict, dashboard_url: str = "") -> str:
     rows = []
     for t in s["trackers"]:
         w = max(2, round(t["kwh"] / best * 100))
-        ins = "<br>".join(f"{e(i['label'])}{'½' if i['shared'] else ''}: {_num(i['kwh'], 2)} "
+        ins = "<br>".join(f"{e(i['label'])}{"<sup style='font-size:9px;color:#94a3b8'>½</sup>" if i['shared'] else ''}: {_num(i['kwh'], 2)} "
                           f"<span style='color:{_color(i['dev_pct'])}'>({_signed(i['dev_pct'])})</span>"
                           for i in t["inputs"])
         bg = "#fef3c7" if t["flag"] else "#ffffff"
